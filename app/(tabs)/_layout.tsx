@@ -53,7 +53,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="list-outline" size={size} color={color} />
           ),
-          href: null, // Hide this tab since it's not implemented yet
         }}
       />
       <Tabs.Screen
@@ -63,7 +62,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),
-          href: null, // Hide this tab since it's not implemented yet
         }}
       />
     </Tabs>
