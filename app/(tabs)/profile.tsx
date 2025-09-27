@@ -224,18 +224,42 @@ export default function ProfileScreen() {
 
   const calculateAge = () => {
     if (!birthDate) return null;
+    
+    // Parse the date string properly to avoid timezone issues
+    let birth: Date;
+    if (birthDate.includes('T')) {
+      // If it's a full ISO datetime string
+      birth = new Date(birthDate);
+    } else {
+      // If it's a date-only string like "2005-01-14"
+      const [year, month, day] = birthDate.split('-').map(Number);
+      birth = new Date(year, month - 1, day); // month is 0-indexed
+    }
+    
     const today = new Date();
-    const birth = new Date(birthDate);
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
+    
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
       age--;
     }
+    
     return age;
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    // Handle timezone issues by parsing date strings properly
+    let date: Date;
+    
+    if (dateString.includes('T')) {
+      // If it's a full ISO datetime string
+      date = new Date(dateString);
+    } else {
+      // If it's a date-only string like "2005-01-14"
+      const [year, month, day] = dateString.split('-').map(Number);
+      date = new Date(year, month - 1, day); // month is 0-indexed in JS
+    }
+    
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric', 
