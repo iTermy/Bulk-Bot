@@ -49,7 +49,8 @@ export default function ProfileScreen() {
   
   // Form states
   const [name, setName] = useState('');
-  const [height, setHeight] = useState('');
+  const [heightFeet, setHeightFeet] = useState('');
+  const [heightInches, setHeightInches] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [currentWeight, setCurrentWeight] = useState('');
   const [newWeight, setNewWeight] = useState('');
@@ -75,7 +76,19 @@ export default function ProfileScreen() {
       if (data) {
         setProfile(data);
         setName(data.name || '');
-        setHeight(data.height?.toString() || '');
+        
+        // Convert height from inches to feet and inches
+        if (data.height) {
+          const totalInches = data.height;
+          const feet = Math.floor(totalInches / 12);
+          const inches = totalInches % 12;
+          setHeightFeet(feet.toString());
+          setHeightInches(inches.toString());
+        } else {
+          setHeightFeet('');
+          setHeightInches('');
+        }
+        
         setBirthDate(data.birth_date || '');
         setCurrentWeight(data.current_weight?.toString() || '');
       }
@@ -116,11 +129,19 @@ export default function ProfileScreen() {
     try {
       setSaving(true);
       
+      // Convert feet and inches to total inches
+      let totalInches = null;
+      if (heightFeet || heightInches) {
+        const feet = parseInt(heightFeet) || 0;
+        const inches = parseInt(heightInches) || 0;
+        totalInches = feet * 12 + inches;
+      }
+      
       // Build updates object dynamically based on what columns exist
       const updates: any = {
         id: user?.id,
         name: name || null,
-        height: height ? parseFloat(height) : null,
+        height: totalInches,
         birth_date: birthDate || null,
       };
 
@@ -247,6 +268,15 @@ export default function ProfileScreen() {
     return age;
   };
 
+  const formatHeight = (heightInInches: number | null | undefined) => {
+    if (!heightInInches) return 'Not set';
+    
+    const feet = Math.floor(heightInInches / 12);
+    const inches = heightInInches % 12;
+    
+    return `${feet}'${inches}"`;
+  };
+
   const formatDate = (dateString: string) => {
     // Handle timezone issues by parsing date strings properly
     let date: Date;
@@ -349,18 +379,35 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>Height (cm)</Text>
+              <Text style={styles.fieldLabel}>Height</Text>
               {editMode ? (
-                <TextInput
-                  style={styles.input}
-                  value={height}
-                  onChangeText={setHeight}
-                  placeholder="Enter height in cm"
-                  keyboardType="numeric"
-                />
+                <View style={styles.heightInputContainer}>
+                  <View style={styles.heightInputGroup}>
+                    <TextInput
+                      style={[styles.input, styles.heightInput]}
+                      value={heightFeet}
+                      onChangeText={setHeightFeet}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      maxLength={1}
+                    />
+                    <Text style={styles.heightLabel}>ft</Text>
+                  </View>
+                  <View style={styles.heightInputGroup}>
+                    <TextInput
+                      style={[styles.input, styles.heightInput]}
+                      value={heightInches}
+                      onChangeText={setHeightInches}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      maxLength={2}
+                    />
+                    <Text style={styles.heightLabel}>in</Text>
+                  </View>
+                </View>
               ) : (
                 <Text style={styles.fieldValue}>
-                  {height ? `${height} cm` : 'Not set'}
+                  {formatHeight(profile?.height)}
                 </Text>
               )}
             </View>
@@ -417,11 +464,16 @@ export default function ProfileScreen() {
                   {profile?.created_at ? formatDate(profile.created_at) : 'N/A'}
                 </Text>
               </View>
-              {currentWeight && height && (
+              {currentWeight && profile?.height && (
                 <View style={styles.statItem}>
                   <Text style={styles.statLabel}>BMI</Text>
                   <Text style={styles.statValue}>
-                    {(parseFloat(currentWeight) / Math.pow(parseFloat(height) / 100, 2)).toFixed(1)}
+                    {(() => {
+                      // Convert inches to meters for BMI calculation
+                      const heightInMeters = (profile.height * 2.54) / 100;
+                      const bmi = parseFloat(currentWeight) / Math.pow(heightInMeters, 2);
+                      return bmi.toFixed(1);
+                    })()}
                   </Text>
                 </View>
               )}
@@ -691,5 +743,23 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: 'white',
     fontWeight: '600',
+  },
+  heightInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heightInputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  heightInput: {
+    width: 50,
+    textAlign: 'center',
+    marginRight: 5,
+  },
+  heightLabel: {
+    fontSize: 16,
+    color: '#666',
   },
 });
