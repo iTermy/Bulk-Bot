@@ -1,30 +1,43 @@
+// app/_layout.tsx - This should be in your root app folder
 import { useEffect } from 'react'
-import { Stack, useRouter, useSegments, type Href } from 'expo-router'
+import { Stack } from 'expo-router'
+import { useRouter, useSegments, useRootNavigationState } from 'expo-router'
 import { AuthProvider, useAuth } from '../lib/AuthContext'
+import { View, ActivityIndicator } from 'react-native'
 
-function RootLayoutNav() {
-  const { user, loading } = useAuth()
+function InitialLayout() {
+  const { user, isLoading } = useAuth()
   const segments = useSegments()
   const router = useRouter()
+  const navigationState = useRootNavigationState()
 
   useEffect(() => {
-    if (loading) return
+    if (!navigationState?.key || isLoading) return
 
     const inAuthGroup = segments[0] === '(tabs)'
-
+    
     if (!user && inAuthGroup) {
-      // Redirect to login if user is not authenticated and trying to access protected routes
-      router.replace('/login' as Href)
+      // Redirect to login if not authenticated but trying to access protected routes
+      router.replace('/login')
     } else if (user && !inAuthGroup) {
-      // Redirect to home if user is authenticated and not in protected routes
+      // Redirect to home if authenticated but on login screen
       router.replace('/(tabs)')
     }
-  }, [user, loading, segments])
+  }, [user, segments, isLoading, navigationState?.key])
+
+  if (isLoading) {
+    // Show loading screen while checking auth status
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    )
+  }
 
   return (
-    <Stack>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="login" options={{ title: 'Login', headerShown: false }} />
     </Stack>
   )
 }
@@ -32,7 +45,7 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <InitialLayout />
     </AuthProvider>
   )
 }

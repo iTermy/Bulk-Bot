@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx - Home screen with logout functionality
 import React, { useEffect, useState } from 'react'
 import {
   View,
@@ -6,120 +7,155 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../lib/AuthContext'
 import { getUserWorkouts } from '../../lib/database'
+import { supabase } from '../../lib/supabase'
 import { Workout } from '../../lib/supabase'
+import { router } from 'expo-router'
 
 export default function HomeScreen() {
   const { user, signOut } = useAuth()
-  const [recentWorkouts, setRecentWorkouts] = useState<Workout[]>([])
-  const [loading, setLoading] = useState(true)
+  const [workouts, setWorkouts] = useState<Workout[]>([])
   const [refreshing, setRefreshing] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  const loadRecentWorkouts = async () => {
+  useEffect(() => {
+    if (user) {
+      loadWorkouts()
+    }
+  }, [user])
+
+  const loadWorkouts = async () => {
     if (!user) return
-
+    
     try {
       const { data, error } = await getUserWorkouts(user.id)
       if (error) {
         console.error('Error loading workouts:', error)
       } else {
-        setRecentWorkouts(data?.slice(0, 5) || [])
+        setWorkouts(data || [])
       }
     } catch (error) {
-      console.error('Error:', error)
+      console.error('Unexpected error:', error)
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
 
-  useEffect(() => {
-    loadRecentWorkouts()
-  }, [user])
-
   const onRefresh = () => {
     setRefreshing(true)
-    loadRecentWorkouts()
+    loadWorkouts()
   }
 
-  const handleSignOut = async () => {
-    await signOut()
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut() // Use the signOut from context
+            } catch (error) {
+              console.error('Logout error:', error)
+              Alert.alert('Error', 'Failed to logout. Please try again.')
+            }
+          },
+        },
+      ]
+    )
   }
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
       day: 'numeric',
+      year: 'numeric'
     })
   }
 
   return (
-    <ScrollView
+    <ScrollView 
       style={styles.container}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Welcome back!</Text>
-          <Text style={styles.userEmail}>{user?.email}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
         </View>
-        <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-          <Ionicons name="log-out-outline" size={24} color="#666" />
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+          <Ionicons name="log-out-outline" size={24} color="#FF3B30" />
         </TouchableOpacity>
       </View>
 
+      {/* Stats Cards */}
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{recentWorkouts.length}</Text>
-          <Text style={styles.statLabel}>Recent Workouts</Text>
+          <Ionicons name="calendar-outline" size={24} color="#007AFF" />
+          <Text style={styles.statNumber}>{workouts.length}</Text>
+          <Text style={styles.statLabel}>Workouts</Text>
         </View>
+        
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>0</Text>
-          <Text style={styles.statLabel}>This Week</Text>
+          <Ionicons name="time-outline" size={24} color="#34C759" />
+          <Text style={styles.statNumber}>
+            {workouts.reduce((acc, w) => acc + (w.duration_minutes || 0), 0)}
+          </Text>
+          <Text style={styles.statLabel}>Minutes</Text>
         </View>
+        
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>0</Text>
-          <Text style={styles.statLabel}>Total Sets</Text>
+          <Ionicons name="trending-up-outline" size={24} color="#FF9500" />
+          <Text style={styles.statNumber}>--</Text>
+          <Text style={styles.statLabel}>Streak</Text>
         </View>
       </View>
 
+      {/* Recent Workouts */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Recent Workouts</Text>
         
         {loading ? (
           <Text style={styles.emptyText}>Loading...</Text>
-        ) : recentWorkouts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="fitness-outline" size={48} color="#ccc" />
+        ) : workouts.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="barbell-outline" size={48} color="#C7C7CC" />
             <Text style={styles.emptyText}>No workouts yet</Text>
-            <Text style={styles.emptySubtext}>
-              Start your fitness journey by logging your first workout!
-            </Text>
+            <Text style={styles.emptySubtext}>Start your first workout to see it here!</Text>
           </View>
         ) : (
-          recentWorkouts.map((workout) => (
-            <View key={workout.id} style={styles.workoutCard}>
+          workouts.map((workout) => (
+            <TouchableOpacity key={workout.id} style={styles.workoutCard}>
               <View style={styles.workoutInfo}>
                 <Text style={styles.workoutName}>
-                  {workout.name || 'Workout'}
+                  {workout.name || 'Unnamed Workout'}
                 </Text>
-                <Text style={styles.workoutDate}>
-                  {formatDate(workout.date)}
-                </Text>
+                <Text style={styles.workoutDate}>{formatDate(workout.date)}</Text>
               </View>
-              {workout.duration_minutes && (
-                <Text style={styles.workoutDuration}>
-                  {workout.duration_minutes}m
-                </Text>
-              )}
-            </View>
+              <View style={styles.workoutStats}>
+                {workout.duration_minutes && (
+                  <Text style={styles.workoutDuration}>
+                    {workout.duration_minutes} min
+                  </Text>
+                )}
+                <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+              </View>
+            </TouchableOpacity>
           ))
         )}
       </View>
@@ -136,39 +172,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
     paddingTop: 60,
+    paddingBottom: 20,
     backgroundColor: 'white',
   },
   greeting: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#333',
   },
-  userEmail: {
+  email: {
     fontSize: 14,
     color: '#666',
     marginTop: 4,
   },
-  signOutButton: {
+  logoutButton: {
     padding: 8,
   },
   statsContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
     padding: 20,
-    gap: 12,
   },
   statCard: {
-    flex: 1,
     backgroundColor: 'white',
-    padding: 16,
     borderRadius: 12,
+    padding: 16,
     alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 6,
   },
   statNumber: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#007AFF',
+    color: '#333',
+    marginTop: 8,
   },
   statLabel: {
     fontSize: 12,
@@ -180,14 +219,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    fontWeight: '600',
     color: '#333',
+    marginBottom: 16,
   },
   workoutCard: {
     backgroundColor: 'white',
-    padding: 16,
     borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -198,7 +237,7 @@ const styles = StyleSheet.create({
   },
   workoutName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#333',
   },
   workoutDate: {
@@ -206,24 +245,27 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
+  workoutStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   workoutDuration: {
     fontSize: 14,
     color: '#007AFF',
-    fontWeight: '500',
+    marginRight: 8,
   },
-  emptyState: {
+  emptyContainer: {
     alignItems: 'center',
-    padding: 40,
+    paddingVertical: 40,
   },
   emptyText: {
     fontSize: 16,
-    color: '#666',
-    marginTop: 12,
+    color: '#C7C7CC',
+    marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
+    color: '#C7C7CC',
     marginTop: 8,
   },
 })

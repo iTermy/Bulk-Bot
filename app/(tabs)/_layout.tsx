@@ -1,7 +1,26 @@
-import { Tabs } from 'expo-router'
+// app/(tabs)/_layout.tsx - Protected tab layout
+import { Tabs, Redirect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import { useAuth } from '../../lib/AuthContext'
+import { View, ActivityIndicator } from 'react-native'
 
 export default function TabLayout() {
+  const { user, isLoading } = useAuth()
+
+  // Show loading while checking auth
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    )
+  }
+
+  // Redirect to login if not authenticated
+  if (!user) {
+    return <Redirect href="/login" />
+  }
+
   return (
     <Tabs
       screenOptions={{

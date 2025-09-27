@@ -9,16 +9,30 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables')
 }
 
+// Create a custom storage adapter that properly handles AsyncStorage
+const customStorage = {
+  getItem: (key: string) => {
+    return AsyncStorage.getItem(key)
+  },
+  setItem: (key: string, value: string) => {
+    return AsyncStorage.setItem(key, value)
+  },
+  removeItem: (key: string) => {
+    return AsyncStorage.removeItem(key)
+  },
+}
+
+// Create Supabase client with working configuration
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
+    storage: customStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },
 })
 
-// Database types (you'll expand these as you add more tables)
+// Database types
 export interface Profile {
   id: string
   email: string
@@ -45,12 +59,14 @@ export interface Workout {
   duration_minutes?: number
   notes?: string
   created_at: string
+  sets?: WorkoutSet[]
 }
 
 export interface WorkoutSet {
   id: string
   workout_id: string
   exercise_id: string
+  exercise?: Exercise
   weight?: number
   reps: number
   set_number: number
