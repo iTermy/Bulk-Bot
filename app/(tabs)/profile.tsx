@@ -112,10 +112,14 @@ export default function ProfileScreen() {
 
       if (!error && data) {
         setWeightHistory(data);
+      } else if (error) {
+        console.log('Error fetching weight history:', error);
+        setWeightHistory([]);
       }
     } catch (error) {
       // Table might not exist yet, that's okay
       console.log('Weight history not available yet');
+      setWeightHistory([]);
     }
   };
 
@@ -241,6 +245,54 @@ export default function ProfileScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const deleteWeightEntry = async (entryId: string) => {
+    Alert.alert(
+      'Delete Weight Entry',
+      'Are you sure you want to delete this weight entry?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Store the current state in case we need to revert
+              const previousHistory = [...weightHistory];
+              
+              // Optimistically update UI immediately
+              setWeightHistory(prevHistory => 
+                prevHistory.filter(entry => entry.id !== entryId)
+              );
+              
+              // Delete from database
+              const { error } = await supabase
+                .from('weight_entries')
+                .delete()
+                .eq('id', entryId)
+                .eq('user_id', user?.id);
+
+              if (error) {
+                // If database deletion fails, revert the UI change
+                setWeightHistory(previousHistory);
+                throw error;
+              }
+              
+              Alert.alert('Success', 'Weight entry deleted');
+            } catch (error) {
+              console.error('Error deleting weight entry:', error);
+              Alert.alert('Error', 'Failed to delete weight entry');
+              // Refetch to ensure UI matches database state
+              await fetchWeightHistory();
+            }
+          },
+        },
+      ]
+    );
   };
 
   const calculateAge = () => {
@@ -386,7 +438,12 @@ export default function ProfileScreen() {
                     <TextInput
                       style={[styles.input, styles.heightInput]}
                       value={heightFeet}
-                      onChangeText={setHeightFeet}
+                      onChangeText={(text) => {
+                        // Only allow numbers and empty string
+                        if (text === '' || /^\d+$/.test(text)) {
+                          setHeightFeet(text);
+                        }
+                      }}
                       placeholder="0"
                       keyboardType="numeric"
                       maxLength={1}
@@ -397,7 +454,12 @@ export default function ProfileScreen() {
                     <TextInput
                       style={[styles.input, styles.heightInput]}
                       value={heightInches}
-                      onChangeText={setHeightInches}
+                      onChangeText={(text) => {
+                        // Only allow numbers and empty string
+                        if (text === '' || /^\d+$/.test(text)) {
+                          setHeightInches(text);
+                        }
+                      }}
                       placeholder="0"
                       keyboardType="numeric"
                       maxLength={2}
@@ -429,7 +491,7 @@ export default function ProfileScreen() {
             <View style={styles.fieldContainer}>
               <Text style={styles.fieldLabel}>Current Weight</Text>
               <Text style={styles.fieldValue}>
-                {currentWeight ? `${currentWeight} kg` : 'Not set'}
+                {currentWeight ? `${currentWeight} lbs` : 'Not set'}
               </Text>
             </View>
 
@@ -442,8 +504,14 @@ export default function ProfileScreen() {
                       {formatDate(entry.date)}
                     </Text>
                     <Text style={styles.historyWeight}>
-                      {entry.weight} kg
+                      {entry.weight} lbs
                     </Text>
+                    <TouchableOpacity
+                      onPress={() => deleteWeightEntry(entry.id)}
+                      style={styles.deleteButton}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
@@ -469,9 +537,10 @@ export default function ProfileScreen() {
                   <Text style={styles.statLabel}>BMI</Text>
                   <Text style={styles.statValue}>
                     {(() => {
-                      // Convert inches to meters for BMI calculation
+                      // Convert weight from lbs to kg and inches to meters for BMI calculation
+                      const weightInKg = parseFloat(currentWeight) * 0.453592;
                       const heightInMeters = (profile.height * 2.54) / 100;
-                      const bmi = parseFloat(currentWeight) / Math.pow(heightInMeters, 2);
+                      const bmi = weightInKg / Math.pow(heightInMeters, 2);
                       return bmi.toFixed(1);
                     })()}
                   </Text>
@@ -514,7 +583,7 @@ export default function ProfileScreen() {
                 style={styles.modalInput}
                 value={newWeight}
                 onChangeText={setNewWeight}
-                placeholder="Weight (kg)"
+                placeholder="Weight (lbs)"
                 keyboardType="decimal-pad"
                 autoFocus
               />
@@ -646,16 +715,22 @@ const styles = StyleSheet.create({
   historyItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 5,
   },
   historyDate: {
     fontSize: 14,
     color: '#666',
+    flex: 1,
   },
   historyWeight: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
+    marginRight: 10,
+  },
+  deleteButton: {
+    padding: 5,
   },
   statsGrid: {
     flexDirection: 'row',
