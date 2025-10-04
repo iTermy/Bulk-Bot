@@ -1,20 +1,18 @@
 // app/(tabs)/index.tsx - Home screen with logout functionality
+import { Ionicons } from '@expo/vector-icons'
 import React, { useEffect, useState } from 'react'
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
   Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../lib/AuthContext'
 import { getUserWorkouts } from '../../lib/database'
-import { supabase } from '../../lib/supabase'
 import { Workout } from '../../lib/supabase'
-import { router } from 'expo-router'
 
 export default function HomeScreen() {
   const { user, signOut } = useAuth()
@@ -148,11 +146,11 @@ export default function HomeScreen() {
                 <Text style={styles.workoutDate}>{formatDate(workout.date)}</Text>
               </View>
               <View style={styles.workoutStats}>
-                {workout.duration_minutes && (
+                {workout.duration_minutes ? (
                   <Text style={styles.workoutDuration}>
                     {workout.duration_minutes} min
                   </Text>
-                )}
+                ) : null}
                 <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
               </View>
             </TouchableOpacity>

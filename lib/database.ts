@@ -1,4 +1,4 @@
-import { supabase, Exercise, Workout, WorkoutSet } from './supabase'
+import { Exercise, supabase, Workout, WorkoutSet } from './supabase'
 
 // Exercise operations
 export const getExercises = async () => {
@@ -106,4 +106,93 @@ export const getExerciseProgress = async (userId: string, exerciseId: string, li
     .limit(limit)
   
   return { data, error }
+}
+
+// Template Functions - Fixed to match existing pattern
+
+export const getUserTemplates = async (userId: string) => {
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .select('*, template_exercises (*, exercises (*))')
+    .eq('user_id', userId)
+    .order('last_used_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false });
+
+  return { data, error };
+}
+
+export const createTemplate = async (templateData: {
+  user_id: string;
+  name: string;
+  notes?: string;
+  is_favorite?: boolean;
+}) => {
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .insert(templateData)
+    .select()
+    .single();
+
+  return { data, error };
+}
+
+export const createTemplateExercise = async (exerciseData: {
+  template_id: string;
+  exercise_id: string;
+  order_index: number;
+  default_sets?: number;
+  default_reps?: number;
+  default_weight?: number;
+}) => {
+  const { data, error } = await supabase
+    .from('template_exercises')
+    .insert(exerciseData)
+    .select()
+    .single();
+
+  return { data, error };
+}
+
+export const updateTemplate = async (templateId: string, updates: {
+  name?: string;
+  notes?: string;
+  is_favorite?: boolean;
+  last_used_at?: string;
+}) => {
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .update(updates)
+    .eq('id', templateId)
+    .select()
+    .single();
+
+  return { data, error };
+}
+
+export const deleteTemplate = async (templateId: string) => {
+  const { error } = await supabase
+    .from('workout_templates')
+    .delete()
+    .eq('id', templateId);
+
+  return { data: null, error };
+}
+
+export const deleteTemplateExercise = async (exerciseId: string) => {
+  const { error } = await supabase
+    .from('template_exercises')
+    .delete()
+    .eq('id', exerciseId);
+
+  return { data: null, error };
+}
+
+export const getTemplateWithExercises = async (templateId: string) => {
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .select('*, template_exercises (*, exercises (*))')
+    .eq('id', templateId)
+    .single();
+
+  return { data, error };
 }

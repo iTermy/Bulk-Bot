@@ -1,8 +1,8 @@
 // app/(tabs)/_layout.tsx - Protected tab layout
-import { Tabs, Redirect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import { Redirect, Tabs } from 'expo-router'
+import { ActivityIndicator, View } from 'react-native'
 import { useAuth } from '../../lib/AuthContext'
-import { View, ActivityIndicator } from 'react-native'
 
 export default function TabLayout() {
   const { user, isLoading } = useAuth()
@@ -38,6 +38,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="history"
+        options={{
+          title: 'History',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="list-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="workout"
         options={{
           title: 'Workout',
@@ -47,11 +56,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="templates"
         options={{
-          title: 'History',
+          title: 'Templates',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list-outline" size={size} color={color} />
+            <Ionicons name="document-text-outline" size={size} color={color} />
           ),
         }}
       />
