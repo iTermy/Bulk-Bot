@@ -83,6 +83,22 @@ export default function HomeScreen() {
     })
   }
 
+  const navigateToWorkoutDetails = (workout: Workout) => {
+    // Navigate to history tab and pass the workout data
+    router.push({
+      pathname: '/(tabs)/history',
+      params: { 
+        selectedWorkoutId: workout.id,
+        navigateToDetails: 'true'
+      }
+    })
+  }
+
+  const navigateToHistoryTab = () => {
+    // Simple navigation to history tab without specific workout
+    router.push('/(tabs)/history')
+  }
+
   return (
     <ScrollView 
       style={styles.container}
@@ -126,7 +142,14 @@ export default function HomeScreen() {
 
       {/* Recent Workouts */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Workouts</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Workouts</Text>
+          {workouts.length > 0 && (
+            <TouchableOpacity onPress={navigateToHistoryTab}>
+              <Text style={styles.viewAllText}>View All</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         
         {loading ? (
           <Text style={styles.emptyText}>Loading...</Text>
@@ -137,8 +160,12 @@ export default function HomeScreen() {
             <Text style={styles.emptySubtext}>Start your first workout to see it here!</Text>
           </View>
         ) : (
-          workouts.map((workout) => (
-            <TouchableOpacity key={workout.id} style={styles.workoutCard}>
+          workouts.slice(0, 5).map((workout) => (
+            <TouchableOpacity 
+              key={workout.id} 
+              style={styles.workoutCard}
+              onPress={() => navigateToWorkoutDetails(workout)}
+            >
               <View style={styles.workoutInfo}>
                 <Text style={styles.workoutName}>
                   {workout.name || 'Unnamed Workout'}
@@ -215,11 +242,21 @@ const styles = StyleSheet.create({
   section: {
     padding: 20,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 16,
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
   },
   workoutCard: {
     backgroundColor: 'white',

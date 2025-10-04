@@ -49,7 +49,8 @@ export default function ProfileScreen() {
   
   // Form states
   const [name, setName] = useState('');
-  const [height, setHeight] = useState('');
+  const [heightFeet, setHeightFeet] = useState('');
+  const [heightInches, setHeightInches] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [currentWeight, setCurrentWeight] = useState('');
   const [newWeight, setNewWeight] = useState('');
@@ -75,7 +76,19 @@ export default function ProfileScreen() {
       if (data) {
         setProfile(data);
         setName(data.name || '');
-        setHeight(data.height?.toString() || '');
+        
+        // Convert height from inches to feet and inches
+        if (data.height) {
+          const totalInches = data.height;
+          const feet = Math.floor(totalInches / 12);
+          const inches = totalInches % 12;
+          setHeightFeet(feet.toString());
+          setHeightInches(inches.toString());
+        } else {
+          setHeightFeet('');
+          setHeightInches('');
+        }
+        
         setBirthDate(data.birth_date || '');
         setCurrentWeight(data.current_weight?.toString() || '');
       }
@@ -99,10 +112,14 @@ export default function ProfileScreen() {
 
       if (!error && data) {
         setWeightHistory(data);
+      } else if (error) {
+        console.log('Error fetching weight history:', error);
+        setWeightHistory([]);
       }
     } catch (error) {
       // Table might not exist yet, that's okay
       console.log('Weight history not available yet');
+      setWeightHistory([]);
     }
   };
 
@@ -116,11 +133,19 @@ export default function ProfileScreen() {
     try {
       setSaving(true);
       
+      // Convert feet and inches to total inches
+      let totalInches = null;
+      if (heightFeet || heightInches) {
+        const feet = parseInt(heightFeet) || 0;
+        const inches = parseInt(heightInches) || 0;
+        totalInches = feet * 12 + inches;
+      }
+      
       // Build updates object dynamically based on what columns exist
       const updates: any = {
         id: user?.id,
         name: name || null,
-        height: height ? parseFloat(height) : null,
+        height: totalInches,
         birth_date: birthDate || null,
       };
 
@@ -222,6 +247,54 @@ export default function ProfileScreen() {
     }
   };
 
+  const deleteWeightEntry = async (entryId: string) => {
+    Alert.alert(
+      'Delete Weight Entry',
+      'Are you sure you want to delete this weight entry?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Store the current state in case we need to revert
+              const previousHistory = [...weightHistory];
+              
+              // Optimistically update UI immediately
+              setWeightHistory(prevHistory => 
+                prevHistory.filter(entry => entry.id !== entryId)
+              );
+              
+              // Delete from database
+              const { error } = await supabase
+                .from('weight_entries')
+                .delete()
+                .eq('id', entryId)
+                .eq('user_id', user?.id);
+
+              if (error) {
+                // If database deletion fails, revert the UI change
+                setWeightHistory(previousHistory);
+                throw error;
+              }
+              
+              Alert.alert('Success', 'Weight entry deleted');
+            } catch (error) {
+              console.error('Error deleting weight entry:', error);
+              Alert.alert('Error', 'Failed to delete weight entry');
+              // Refetch to ensure UI matches database state
+              await fetchWeightHistory();
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const calculateAge = () => {
     if (!birthDate) return null;
     
@@ -245,6 +318,15 @@ export default function ProfileScreen() {
     }
     
     return age;
+  };
+
+  const formatHeight = (heightInInches: number | null | undefined) => {
+    if (!heightInInches) return 'Not set';
+    
+    const feet = Math.floor(heightInInches / 12);
+    const inches = heightInInches % 12;
+    
+    return `${feet}'${inches}"`;
   };
 
   const formatDate = (dateString: string) => {
@@ -349,18 +431,45 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>Height (cm)</Text>
+              <Text style={styles.fieldLabel}>Height</Text>
               {editMode ? (
-                <TextInput
-                  style={styles.input}
-                  value={height}
-                  onChangeText={setHeight}
-                  placeholder="Enter height in cm"
-                  keyboardType="numeric"
-                />
+                <View style={styles.heightInputContainer}>
+                  <View style={styles.heightInputGroup}>
+                    <TextInput
+                      style={[styles.input, styles.heightInput]}
+                      value={heightFeet}
+                      onChangeText={(text) => {
+                        // Only allow numbers and empty string
+                        if (text === '' || /^\d+$/.test(text)) {
+                          setHeightFeet(text);
+                        }
+                      }}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      maxLength={1}
+                    />
+                    <Text style={styles.heightLabel}>ft</Text>
+                  </View>
+                  <View style={styles.heightInputGroup}>
+                    <TextInput
+                      style={[styles.input, styles.heightInput]}
+                      value={heightInches}
+                      onChangeText={(text) => {
+                        // Only allow numbers and empty string
+                        if (text === '' || /^\d+$/.test(text)) {
+                          setHeightInches(text);
+                        }
+                      }}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      maxLength={2}
+                    />
+                    <Text style={styles.heightLabel}>in</Text>
+                  </View>
+                </View>
               ) : (
                 <Text style={styles.fieldValue}>
-                  {height ? `${height} cm` : 'Not set'}
+                  {formatHeight(profile?.height)}
                 </Text>
               )}
             </View>
@@ -382,7 +491,7 @@ export default function ProfileScreen() {
             <View style={styles.fieldContainer}>
               <Text style={styles.fieldLabel}>Current Weight</Text>
               <Text style={styles.fieldValue}>
-                {currentWeight ? `${currentWeight} kg` : 'Not set'}
+                {currentWeight ? `${currentWeight} lbs` : 'Not set'}
               </Text>
             </View>
 
@@ -395,8 +504,14 @@ export default function ProfileScreen() {
                       {formatDate(entry.date)}
                     </Text>
                     <Text style={styles.historyWeight}>
-                      {entry.weight} kg
+                      {entry.weight} lbs
                     </Text>
+                    <TouchableOpacity
+                      onPress={() => deleteWeightEntry(entry.id)}
+                      style={styles.deleteButton}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
@@ -417,11 +532,17 @@ export default function ProfileScreen() {
                   {profile?.created_at ? formatDate(profile.created_at) : 'N/A'}
                 </Text>
               </View>
-              {currentWeight && height && (
+              {currentWeight && profile?.height && (
                 <View style={styles.statItem}>
                   <Text style={styles.statLabel}>BMI</Text>
                   <Text style={styles.statValue}>
-                    {(parseFloat(currentWeight) / Math.pow(parseFloat(height) / 100, 2)).toFixed(1)}
+                    {(() => {
+                      // Convert weight from lbs to kg and inches to meters for BMI calculation
+                      const weightInKg = parseFloat(currentWeight) * 0.453592;
+                      const heightInMeters = (profile.height * 2.54) / 100;
+                      const bmi = weightInKg / Math.pow(heightInMeters, 2);
+                      return bmi.toFixed(1);
+                    })()}
                   </Text>
                 </View>
               )}
@@ -462,7 +583,7 @@ export default function ProfileScreen() {
                 style={styles.modalInput}
                 value={newWeight}
                 onChangeText={setNewWeight}
-                placeholder="Weight (kg)"
+                placeholder="Weight (lbs)"
                 keyboardType="decimal-pad"
                 autoFocus
               />
@@ -594,16 +715,22 @@ const styles = StyleSheet.create({
   historyItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 5,
   },
   historyDate: {
     fontSize: 14,
     color: '#666',
+    flex: 1,
   },
   historyWeight: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
+    marginRight: 10,
+  },
+  deleteButton: {
+    padding: 5,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -691,5 +818,23 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: 'white',
     fontWeight: '600',
+  },
+  heightInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heightInputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  heightInput: {
+    width: 50,
+    textAlign: 'center',
+    marginRight: 5,
+  },
+  heightLabel: {
+    fontSize: 16,
+    color: '#666',
   },
 });
