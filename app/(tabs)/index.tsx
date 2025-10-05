@@ -1,4 +1,6 @@
-// app/(tabs)/index.tsx - Home screen with logout functionality and PR section
+// app/(tabs)/index.tsx - Home screen with vertical PR list
+import { Ionicons } from '@expo/vector-icons'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import {
