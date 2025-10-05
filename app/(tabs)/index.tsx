@@ -1,22 +1,21 @@
 // app/(tabs)/index.tsx - Home screen with logout functionality and PR section
-import React, { useState, useEffect } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-  Alert,
-  Modal,
-  FlatList,
-} from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import { router } from 'expo-router'
+import React, { useEffect, useState } from 'react'
+import {
+  Alert,
+  FlatList,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native'
 import { useAuth } from '../../lib/AuthContext'
 import { getUserWorkouts } from '../../lib/database'
-import { supabase } from '../../lib/supabase'
-import { Workout } from '../../lib/supabase'
-import { router } from 'expo-router'
+import { supabase, Workout } from '../../lib/supabase'
 
 type Set = {
   id: string;

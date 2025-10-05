@@ -50,13 +50,56 @@ interface Template {
   template_exercises: TemplateExercise[];
 }
 
+// Mock recommended templates data
+const RECOMMENDED_TEMPLATES = [
+  {
+    id: 'rec-1',
+    name: 'Push Day',
+    exercises: 6,
+    duration: '45-50 min',
+    muscleGroups: ['Chest', 'Shoulders', 'Triceps'],
+    subtitle: '3 days/week • Intermediate',
+    description: 'Classic push workout for upper body strength',
+    isPopular: true
+  },
+  {
+    id: 'rec-2',
+    name: 'Pull Day',
+    exercises: 6,
+    duration: '50-55 min',
+    muscleGroups: ['Back', 'Biceps', 'Rear Delts'],
+    subtitle: '3 days/week • Intermediate',
+    description: 'Back and biceps focused pulling movements',
+    isNew: true
+  },
+  {
+    id: 'rec-3',
+    name: 'Full Body Beginner',
+    exercises: 8,
+    duration: '40-45 min',
+    muscleGroups: ['Full Body', 'Compound'],
+    subtitle: '2 days/week • Beginner',
+    description: 'Perfect for starting your fitness journey'
+  }
+];
+
+const FILTER_CATEGORIES = [
+  { id: 'all', name: 'All' },
+  { id: 'push', name: 'Push' },
+  { id: 'pull', name: 'Pull' },
+  { id: 'legs', name: 'Legs' },
+  { id: 'upper', name: 'Upper' },
+  { id: 'lower', name: 'Lower' },
+  { id: 'full', name: 'Full Body' },
+  { id: 'cardio', name: 'Cardio' }
+];
+
 export default function TemplatesScreen() {
   const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
   const [exercisePickerVisible, setExercisePickerVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   
@@ -66,6 +109,14 @@ export default function TemplatesScreen() {
   const [selectedExercises, setSelectedExercises] = useState<any[]>([]);
   const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
   const [exerciseSearch, setExerciseSearch] = useState('');
+  
+  // New state for search and filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [expandedSections, setExpandedSections] = useState({
+    myTemplates: true,
+    recommended: true
+  });
 
   useEffect(() => {
     loadTemplates();
@@ -197,9 +248,9 @@ export default function TemplatesScreen() {
 
   const handleAddExercise = () => {
     setExerciseSearch('');
-    setCreateModalVisible(false); // Close create modal first
+    setCreateModalVisible(false);
     setTimeout(() => {
-      setExercisePickerVisible(true); // Then open exercise picker
+      setExercisePickerVisible(true);
     }, 100);
   };
 
@@ -215,7 +266,7 @@ export default function TemplatesScreen() {
     ]);
     setExercisePickerVisible(false);
     setTimeout(() => {
-      setCreateModalVisible(true); // Reopen create modal after selection
+      setCreateModalVisible(true);
     }, 100);
   };
 
@@ -228,49 +279,146 @@ export default function TemplatesScreen() {
     setDetailModalVisible(true);
   };
 
+  const toggleSection = (section: 'myTemplates' | 'recommended') => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
+
   const filteredExercises = availableExercises.filter((ex) =>
     ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
   );
 
-  const renderTemplateCard = ({ item }: { item: Template }) => (
+  // Filter templates based on search and active filter
+  const filteredTemplates = templates.filter(template => {
+    const matchesSearch = template.name.toLowerCase().includes(searchQuery.toLowerCase());
+    // For now, simple filter matching - you can enhance this with actual muscle group matching
+    const matchesFilter = activeFilter === 'all' || 
+      template.name.toLowerCase().includes(activeFilter.toLowerCase());
+    return matchesSearch && matchesFilter;
+  });
+
+  const renderTemplateCard = (template: Template, isRecommended = false) => (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => handleViewDetails(item)}
+      onPress={() => handleViewDetails(template)}
     >
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
-          <Text style={styles.cardTitle}>{item.name}</Text>
-          <TouchableOpacity onPress={() => handleToggleFavorite(item)}>
+          <Text style={styles.cardTitle}>{template.name}</Text>
+          <TouchableOpacity 
+            onPress={(e) => {
+              e.stopPropagation();
+              handleToggleFavorite(template);
+            }}
+          >
             <Ionicons
-              name={item.is_favorite ? 'star' : 'star-outline'}
-              size={24}
-              color={item.is_favorite ? '#FFD700' : '#666'}
+              name={template.is_favorite ? 'star' : 'star-outline'}
+              size={20}
+              color={template.is_favorite ? '#FFD700' : '#666'}
             />
           </TouchableOpacity>
         </View>
-        <Text style={styles.cardSubtitle}>
-          {item.template_exercises.length} exercise{item.template_exercises.length !== 1 ? 's' : ''}
+        
+        <Text style={styles.cardMetadata}>
+          {template.template_exercises.length} exercises • {calculateDuration(template.template_exercises.length)}
         </Text>
+
+        {isRecommended && template.notes && (
+          <Text style={styles.cardDescription}>{template.notes}</Text>
+        )}
       </View>
-      <View style={styles.exercisePreview}>
-        {item.template_exercises.slice(0, 3).map((te, index) => (
-          <Text key={te.id} style={styles.exerciseName}>
-            • {te.exercises.name}
-          </Text>
+
+      <View style={styles.tagsContainer}>
+        {getMuscleGroups(template).slice(0, 3).map((group, index) => (
+          <View key={index} style={styles.tag}>
+            <Text style={styles.tagText}>{group}</Text>
+          </View>
         ))}
-        {item.template_exercises.length > 3 ? (
-          <Text style={styles.moreText}>
-            +{item.template_exercises.length - 3} more
-          </Text>
-        ) : null}
+        {getMuscleGroups(template).length > 3 && (
+          <View style={styles.tag}>
+            <Text style={styles.tagText}>+{getMuscleGroups(template).length - 3}</Text>
+          </View>
+        )}
       </View>
-      {item.last_used_at ? (
-        <Text style={styles.lastUsed}>
-          Last used: {new Date(item.last_used_at).toLocaleDateString()}
-        </Text>
-      ) : null}
+
+      {isRecommended && (
+        <View style={styles.recommendedBadges}>
+          <View style={styles.subtitleBadge}>
+            <Text style={styles.subtitleText}>
+              {RECOMMENDED_TEMPLATES.find(t => t.name === template.name)?.subtitle}
+            </Text>
+          </View>
+          {RECOMMENDED_TEMPLATES.find(t => t.name === template.name)?.isPopular && (
+            <View style={[styles.badge, styles.popularBadge]}>
+              <Text style={styles.badgeText}>Popular</Text>
+            </View>
+          )}
+          {RECOMMENDED_TEMPLATES.find(t => t.name === template.name)?.isNew && (
+            <View style={[styles.badge, styles.newBadge]}>
+              <Text style={styles.badgeText}>New</Text>
+            </View>
+          )}
+        </View>
+      )}
     </TouchableOpacity>
   );
+
+  const renderRecommendedCard = (template: any) => (
+    <TouchableOpacity style={styles.card}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardTitleRow}>
+          <Text style={styles.cardTitle}>{template.name}</Text>
+          <Ionicons name="star-outline" size={20} color="#666" />
+        </View>
+        
+        <Text style={styles.cardMetadata}>
+          {template.exercises} exercises • {template.duration}
+        </Text>
+
+        <Text style={styles.cardDescription}>{template.description}</Text>
+      </View>
+
+      <View style={styles.tagsContainer}>
+        {template.muscleGroups.map((group: string, index: number) => (
+          <View key={index} style={styles.tag}>
+            <Text style={styles.tagText}>{group}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.recommendedBadges}>
+        <View style={styles.subtitleBadge}>
+          <Text style={styles.subtitleText}>{template.subtitle}</Text>
+        </View>
+        {template.isPopular && (
+          <View style={[styles.badge, styles.popularBadge]}>
+            <Text style={styles.badgeText}>Popular</Text>
+          </View>
+        )}
+        {template.isNew && (
+          <View style={[styles.badge, styles.newBadge]}>
+            <Text style={styles.badgeText}>New</Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+
+  // Helper functions
+  const calculateDuration = (exerciseCount: number) => {
+    const baseTime = 45;
+    const additionalTime = Math.floor(exerciseCount * 2.5);
+    return `${baseTime + additionalTime}-${baseTime + additionalTime + 5} min`;
+  };
+
+  const getMuscleGroups = (template: Template) => {
+    const allGroups = template.template_exercises.flatMap(te => 
+      te.exercises.muscle_groups
+    );
+    return [...new Set(allGroups)];
+  };
 
   if (loading && templates.length === 0) {
     return (
@@ -282,31 +430,128 @@ export default function TemplatesScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={templates}
-        renderItem={renderTemplateCard}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={templates.length === 0 ? styles.emptyContainer : styles.listContent}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="document-text-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyTitle}>No Templates Yet</Text>
-            <Text style={styles.emptyText}>
-              Create your first workout template to get started
-            </Text>
-          </View>
-        }
+      {/* Header Banner */}
+      <View style={styles.headerBanner}>
+        <Text style={styles.headerTitle}>Templates</Text>
+      </View>
+
+      {/* Search Section */}
+      <View style={styles.searchSection}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search templates..."
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          <TouchableOpacity 
+            style={styles.newButton}
+            onPress={handleCreateTemplate}
+          >
+            <Text style={styles.newButtonText}>New</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Filter Section - Compact */}
+      <View style={styles.filterSection}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterContent}
+        >
+          {FILTER_CATEGORIES.map((category) => (
+            <TouchableOpacity
+              key={category.id}
+              style={[
+                styles.filterPill,
+                activeFilter === category.id && styles.filterPillActive
+              ]}
+              onPress={() => setActiveFilter(category.id)}
+            >
+              <Text style={[
+                styles.filterText,
+                activeFilter === category.id && styles.filterTextActive
+              ]}>
+                {category.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Content Sections */}
+      <ScrollView 
+        style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-      />
-
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={handleCreateTemplate}
       >
-        <Ionicons name="add" size={32} color="white" />
-      </TouchableOpacity>
+        {/* My Templates Section */}
+        <View style={styles.section}>
+          <TouchableOpacity 
+            style={styles.sectionHeader}
+            onPress={() => toggleSection('myTemplates')}
+          >
+            <Text style={styles.sectionTitle}>MY TEMPLATES</Text>
+            <Ionicons 
+              name={expandedSections.myTemplates ? 'chevron-up' : 'chevron-down'} 
+              size={20} 
+              color="#666" 
+            />
+          </TouchableOpacity>
+          
+          {expandedSections.myTemplates && (
+            <View style={styles.sectionContent}>
+              {filteredTemplates.length > 0 ? (
+                filteredTemplates.map((template) => (
+                  <View key={template.id}>
+                    {renderTemplateCard(template)}
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptySection}>
+                  <Ionicons name="document-text-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptySectionText}>No templates found</Text>
+                  <Text style={styles.emptySectionSubtext}>
+                    {searchQuery || activeFilter !== 'all' 
+                      ? 'Try changing your search or filter' 
+                      : 'Create your first template to get started'
+                    }
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* Recommended Section */}
+        <View style={styles.section}>
+          <TouchableOpacity 
+            style={styles.sectionHeader}
+            onPress={() => toggleSection('recommended')}
+          >
+            <Text style={styles.sectionTitle}>RECOMMENDED</Text>
+            <Ionicons 
+              name={expandedSections.recommended ? 'chevron-up' : 'chevron-down'} 
+              size={20} 
+              color="#666" 
+            />
+          </TouchableOpacity>
+          
+          {expandedSections.recommended && (
+            <View style={styles.sectionContent}>
+              {RECOMMENDED_TEMPLATES.map((template) => (
+                <View key={template.id}>
+                  {renderRecommendedCard(template)}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </ScrollView>
 
       {/* Create Template Modal */}
       <Modal
@@ -427,7 +672,7 @@ export default function TemplatesScreen() {
             <TouchableOpacity onPress={() => {
               setExercisePickerVisible(false);
               setTimeout(() => {
-                setCreateModalVisible(true); // Reopen create modal if cancelled
+                setCreateModalVisible(true);
               }, 100);
             }}>
               <Text style={styles.cancelButton}>Cancel</Text>
@@ -520,33 +765,113 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  listContent: {
+  // Header Banner
+  headerBanner: {
+    backgroundColor: 'white',
+    paddingTop: 60,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  headerTitle: {
+    fontSize: 34,
+    fontWeight: '700',
+    color: '#333',
+  },
+  // Search Section
+  searchSection: {
+    backgroundColor: 'white',
     padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  emptyContainer: {
-    flex: 1,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
+  searchContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    paddingHorizontal: 12,
   },
-  emptyTitle: {
-    fontSize: 20,
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  newButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  newButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  // Filter Section - Compact
+  filterSection: {
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    maxHeight: 52, // Reduced height
+  },
+  filterContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8, // Reduced padding
+  },
+  filterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 6, // Reduced padding
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    marginRight: 8,
+  },
+  filterPillActive: {
+    backgroundColor: '#007AFF',
+  },
+  filterText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  filterTextActive: {
+    color: 'white',
+  },
+  // Content Styles
+  content: {
+    flex: 1,
+  },
+  section: {
+    marginTop: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
+    letterSpacing: 0.5,
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+  sectionContent: {
+    padding: 16,
   },
+  // Card Styles
   card: {
     backgroundColor: 'white',
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     shadowColor: '#000',
@@ -561,54 +886,95 @@ const styles = StyleSheet.create({
   cardTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 4,
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#333',
     flex: 1,
+    marginRight: 8,
   },
-  cardSubtitle: {
+  cardMetadata: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 6,
   },
-  exercisePreview: {
+  cardDescription: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 18,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     marginBottom: 8,
   },
-  exerciseName: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 2,
+  tag: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 6,
+    marginBottom: 4,
   },
-  moreText: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontStyle: 'italic',
-    marginTop: 4,
-  },
-  lastUsed: {
+  tagText: {
     fontSize: 12,
-    color: '#999',
-    marginTop: 8,
+    color: '#666',
+    fontWeight: '500',
   },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
+  recommendedBadges: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 8,
+    flexWrap: 'wrap',
   },
+  subtitleBadge: {
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  subtitleText: {
+    fontSize: 12,
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  badge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  popularBadge: {
+    backgroundColor: '#fff3cd',
+  },
+  newBadge: {
+    backgroundColor: '#d4edda',
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#856404',
+  },
+  // Empty States
+  emptySection: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptySectionText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  emptySectionSubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  // Modal Styles (keep existing)
   modalContainer: {
     flex: 1,
     backgroundColor: 'white',
@@ -713,22 +1079,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: 'white',
     textAlign: 'center',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
-    margin: 16,
-    paddingHorizontal: 12,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
   },
   exerciseOption: {
     padding: 16,
