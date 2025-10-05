@@ -15,10 +15,12 @@ import {
 } from 'react-native';
 import { useAuth } from '../../lib/AuthContext';
 import {
+  copyTemplateToUser,
   createTemplate,
   createTemplateExercise,
   deleteTemplate,
   getExercises,
+  getRecommendedTemplates,
   getUserTemplates,
   updateTemplate
 } from '../../lib/database';
@@ -48,6 +50,14 @@ interface Template {
   last_used_at: string | null;
   created_at: string;
   template_exercises: TemplateExercise[];
+  // New fields for recommended templates
+  is_recommended?: boolean;
+  difficulty_level?: 'beginner' | 'intermediate' | 'advanced';
+  frequency?: string;
+  description?: string;
+  tags?: string[];
+  badge_type?: 'popular' | 'new' | 'featured' | null;
+  user_id?: string; // This will be null for recommended templates
 }
 
 // Mock recommended templates data
@@ -97,13 +107,16 @@ const FILTER_CATEGORIES = [
 export default function TemplatesScreen() {
   const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [recommendedTemplates, setRecommendedTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [exercisePickerVisible, setExercisePickerVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [addTemplateModalVisible, setAddTemplateModalVisible] = useState(false);
   
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [templateToAdd, setTemplateToAdd] = useState<Template | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [templateNotes, setTemplateNotes] = useState('');
   const [selectedExercises, setSelectedExercises] = useState<any[]>([]);
@@ -120,6 +133,7 @@ export default function TemplatesScreen() {
 
   useEffect(() => {
     loadTemplates();
+    loadRecommendedTemplates();
     loadExercises();
   }, []);
 
@@ -138,6 +152,16 @@ export default function TemplatesScreen() {
     }
   };
 
+  const loadRecommendedTemplates = async () => {
+    try {
+      const { data, error } = await getRecommendedTemplates();
+      if (error) throw error;
+      setRecommendedTemplates(data || []);
+    } catch (error) {
+      console.error('Error loading recommended templates:', error);
+    }
+  };
+
   const loadExercises = async () => {
     try {
       const { data, error } = await getExercises();
@@ -151,6 +175,33 @@ export default function TemplatesScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadTemplates();
+    loadRecommendedTemplates();
+  };
+
+  const handleAddRecommendedTemplate = (template: Template) => {
+    setTemplateToAdd(template);
+    setAddTemplateModalVisible(true);
+  };
+
+  const handleConfirmAddTemplate = async () => {
+    if (!user || !templateToAdd) return;
+
+    try {
+      setLoading(true);
+      const { data, error } = await copyTemplateToUser(templateToAdd.id, user.id);
+      
+      if (error) throw error;
+      
+      setAddTemplateModalVisible(false);
+      setTemplateToAdd(null);
+      loadTemplates(); // Refresh to show the new template
+      Alert.alert('Success', 'Template added to your templates!');
+    } catch (error) {
+      console.error('Error adding template:', error);
+      Alert.alert('Error', 'Failed to add template');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreateTemplate = () => {
@@ -279,6 +330,12 @@ export default function TemplatesScreen() {
     setDetailModalVisible(true);
   };
 
+  const handleRecommendedTemplatePress = (template: Template) => {
+    // Show details first, then allow adding to collection
+    setSelectedTemplate(template);
+    setDetailModalVisible(true);
+  };
+
   const toggleSection = (section: 'myTemplates' | 'recommended') => {
     setExpandedSections(prev => ({
       ...prev,
@@ -302,43 +359,51 @@ export default function TemplatesScreen() {
   const renderTemplateCard = (template: Template, isRecommended = false) => (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => handleViewDetails(template)}
+      onPress={() => isRecommended ? handleRecommendedTemplatePress(template) : handleViewDetails(template)}
     >
       <View style={styles.cardHeader}>
         <View style={styles.cardTitleRow}>
           <Text style={styles.cardTitle}>{template.name}</Text>
-          <TouchableOpacity 
-            onPress={(e) => {
-              e.stopPropagation();
-              handleToggleFavorite(template);
-            }}
-          >
-            <Ionicons
-              name={template.is_favorite ? 'star' : 'star-outline'}
-              size={20}
-              color={template.is_favorite ? '#FFD700' : '#666'}
-            />
-          </TouchableOpacity>
+          {!isRecommended ? (
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                handleToggleFavorite(template);
+              }}
+            >
+              <Ionicons
+                name={template.is_favorite ? 'star' : 'star-outline'}
+                size={20}
+                color={template.is_favorite ? '#FFD700' : '#666'}
+              />
+            </TouchableOpacity>
+          ) : (
+            <Ionicons name="add-circle-outline" size={20} color="#007AFF" />
+          )}
         </View>
         
         <Text style={styles.cardMetadata}>
-          {template.template_exercises.length} exercises • {calculateDuration(template.template_exercises.length)}
+          {template.template_exercises?.length || 0} exercises • {calculateDuration(template.template_exercises?.length || 0)}
         </Text>
 
-        {isRecommended && template.notes && (
-          <Text style={styles.cardDescription}>{template.notes}</Text>
+        {isRecommended && template.description && (
+          <Text style={styles.cardDescription}>{template.description}</Text>
         )}
       </View>
 
       <View style={styles.tagsContainer}>
-        {getMuscleGroups(template).slice(0, 3).map((group, index) => (
+        {/* Show tags if available, otherwise fall back to muscle groups */}
+        {(template.tags && template.tags.length > 0 
+          ? template.tags 
+          : getMuscleGroups(template)
+        ).slice(0, 3).map((group, index) => (
           <View key={index} style={styles.tag}>
             <Text style={styles.tagText}>{group}</Text>
           </View>
         ))}
-        {getMuscleGroups(template).length > 3 && (
+        {(template.tags && template.tags.length > 3) && (
           <View style={styles.tag}>
-            <Text style={styles.tagText}>+{getMuscleGroups(template).length - 3}</Text>
+            <Text style={styles.tagText}>+{(template.tags.length - 3)}</Text>
           </View>
         )}
       </View>
@@ -347,17 +412,22 @@ export default function TemplatesScreen() {
         <View style={styles.recommendedBadges}>
           <View style={styles.subtitleBadge}>
             <Text style={styles.subtitleText}>
-              {RECOMMENDED_TEMPLATES.find(t => t.name === template.name)?.subtitle}
+              {template.frequency} • {template.difficulty_level}
             </Text>
           </View>
-          {RECOMMENDED_TEMPLATES.find(t => t.name === template.name)?.isPopular && (
+          {template.badge_type === 'popular' && (
             <View style={[styles.badge, styles.popularBadge]}>
               <Text style={styles.badgeText}>Popular</Text>
             </View>
           )}
-          {RECOMMENDED_TEMPLATES.find(t => t.name === template.name)?.isNew && (
+          {template.badge_type === 'new' && (
             <View style={[styles.badge, styles.newBadge]}>
               <Text style={styles.badgeText}>New</Text>
+            </View>
+          )}
+          {template.badge_type === 'featured' && (
+            <View style={[styles.badge, styles.featuredBadge]}>
+              <Text style={styles.badgeText}>Featured</Text>
             </View>
           )}
         </View>
@@ -543,21 +613,60 @@ export default function TemplatesScreen() {
           
           {expandedSections.recommended && (
             <View style={styles.sectionContent}>
-              {RECOMMENDED_TEMPLATES.map((template) => (
-                <View key={template.id}>
-                  {renderRecommendedCard(template)}
+              {recommendedTemplates.length > 0 ? (
+                recommendedTemplates.map((template) => (
+                  <View key={template.id}>
+                    {renderTemplateCard(template, true)}
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptySection}>
+                  <Ionicons name="star-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptySectionText}>No recommended templates</Text>
+                  <Text style={styles.emptySectionSubtext}>
+                    Check back later for new workout templates
+                  </Text>
                 </View>
-              ))}
+              )}
             </View>
           )}
         </View>
       </ScrollView>
 
+      {/* Add Template Confirmation Modal */}
+      <Modal
+        visible={addTemplateModalVisible}
+        animationType="slide"
+        transparent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmationModal}>
+            <Text style={styles.confirmationTitle}>Add Template</Text>
+            <Text style={styles.confirmationText}>
+              Add "{templateToAdd?.name}" to your templates?
+            </Text>
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity 
+                style={[styles.confirmationButton, styles.cancelButton]}
+                onPress={() => setAddTemplateModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.confirmationButton, styles.confirmButton]}
+                onPress={handleConfirmAddTemplate}
+              >
+                <Text style={styles.confirmButtonText}>Add Template</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Create Template Modal */}
       <Modal
         visible={createModalVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -665,7 +774,6 @@ export default function TemplatesScreen() {
       <Modal
         visible={exercisePickerVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -714,27 +822,70 @@ export default function TemplatesScreen() {
       <Modal
         visible={detailModalVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
               <Text style={styles.cancelButton}>Close</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Template Details</Text>
-            <TouchableOpacity
-              onPress={() => selectedTemplate && handleDeleteTemplate(selectedTemplate)}
-            >
-              <Ionicons name="trash-outline" size={24} color="#FF3B30" />
-            </TouchableOpacity>
+            <Text style={styles.modalTitle}>
+              {selectedTemplate?.is_recommended ? 'Template Details' : 'Template Details'}
+            </Text>
+            {selectedTemplate?.is_recommended ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setDetailModalVisible(false);
+                  handleAddRecommendedTemplate(selectedTemplate);
+                }}
+              >
+                <Text style={styles.saveButton}>Add</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() => selectedTemplate && handleDeleteTemplate(selectedTemplate)}
+              >
+                <Ionicons name="trash-outline" size={24} color="#FF3B30" />
+              </TouchableOpacity>
+            )}
           </View>
 
           {selectedTemplate ? (
             <ScrollView style={styles.modalContent}>
               <Text style={styles.detailTitle}>{selectedTemplate.name}</Text>
+              
+              {selectedTemplate.description && (
+                <Text style={styles.detailDescription}>{selectedTemplate.description}</Text>
+              )}
+              
               {selectedTemplate.notes ? (
                 <Text style={styles.detailNotes}>{selectedTemplate.notes}</Text>
               ) : null}
+
+              {/* Template metadata for recommended templates */}
+              {selectedTemplate.is_recommended && (
+                <View style={styles.detailMetadata}>
+                  <View style={styles.metadataRow}>
+                    <Text style={styles.metadataLabel}>Difficulty:</Text>
+                    <Text style={styles.metadataValue}>{selectedTemplate.difficulty_level}</Text>
+                  </View>
+                  <View style={styles.metadataRow}>
+                    <Text style={styles.metadataLabel}>Frequency:</Text>
+                    <Text style={styles.metadataValue}>{selectedTemplate.frequency}</Text>
+                  </View>
+                  {selectedTemplate.tags && selectedTemplate.tags.length > 0 && (
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabel}>Focus:</Text>
+                      <View style={styles.tagsContainer}>
+                        {selectedTemplate.tags.map((tag, index) => (
+                          <View key={index} style={styles.tag}>
+                            <Text style={styles.tagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
 
               <Text style={styles.detailSectionTitle}>Exercises</Text>
               {selectedTemplate.template_exercises.map((te) => (
@@ -745,8 +896,23 @@ export default function TemplatesScreen() {
                     {te.default_reps ? ` × ${te.default_reps} reps` : ''}
                     {te.default_weight ? ` @ ${te.default_weight} kg` : ''}
                   </Text>
+                  <Text style={styles.detailExerciseEquipment}>
+                    {te.exercises.equipment} • {te.exercises.muscle_groups.join(', ')}
+                  </Text>
                 </View>
               ))}
+
+              {selectedTemplate.is_recommended && (
+                <TouchableOpacity 
+                  style={styles.addTemplateButton}
+                  onPress={() => {
+                    setDetailModalVisible(false);
+                    handleAddRecommendedTemplate(selectedTemplate);
+                  }}
+                >
+                  <Text style={styles.addTemplateButtonText}>Add to My Templates</Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           ) : null}
         </View>
@@ -974,7 +1140,7 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
-  // Modal Styles (keep existing)
+  // Modal Styles
   modalContainer: {
     flex: 1,
     backgroundColor: 'white',
@@ -991,10 +1157,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-  },
-  cancelButton: {
-    fontSize: 16,
-    color: '#666',
   },
   saveButton: {
     fontSize: 16,
@@ -1095,16 +1257,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
+  // Detail Modal Styles
   detailTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: '#333',
     marginBottom: 8,
   },
+  detailDescription: {
+    fontSize: 16,
+    color: '#666',
+    lineHeight: 22,
+    marginBottom: 16,
+  },
   detailNotes: {
     fontSize: 16,
     color: '#666',
     marginBottom: 24,
+  },
+  detailMetadata: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 24,
+  },
+  metadataRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  metadataLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    width: 80,
+  },
+  metadataValue: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
   },
   detailSectionTitle: {
     fontSize: 18,
@@ -1127,5 +1318,75 @@ const styles = StyleSheet.create({
   detailExerciseInfo: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 4,
+  },
+  detailExerciseEquipment: {
+    fontSize: 12,
+    color: '#999',
+  },
+  addTemplateButton: {
+    backgroundColor: '#007AFF',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  addTemplateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Confirmation Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmationModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 24,
+    margin: 20,
+    width: '80%',
+  },
+  confirmationTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  confirmationText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 24,
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  confirmationButton: {
+  flex: 1,
+  paddingVertical: 12,
+  borderRadius: 8,
+  alignItems: 'center',
+  marginHorizontal: 6,
+},
+cancelButton: {
+  backgroundColor: '#f5f5f5',
+},
+confirmButton: {
+  backgroundColor: '#007AFF',
+},
+cancelButtonText: {
+  color: '#666',
+  fontWeight: '600',
+},
+confirmButtonText: {
+  color: 'white',
+  fontWeight: '600',
+},
+  featuredBadge: {
+    backgroundColor: '#e3f2fd',
   },
 });
