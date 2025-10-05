@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Home screen with logout functionality and PR section
+// app/(tabs)/index.tsx - Home screen with vertical PR list
 import React, { useState, useEffect } from 'react'
 import {
   View,
@@ -17,12 +17,13 @@ import { getUserWorkouts } from '../../lib/database'
 import { supabase } from '../../lib/supabase'
 import { Workout } from '../../lib/supabase'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 type Set = {
   id: string;
   workout_id: string;
   exercise_id: string;
-  weight: number | undefined; // Fixed: weight can be undefined
+  weight: number | undefined;
   reps: number;
   set_number: number;
   created_at: string;
@@ -47,6 +48,17 @@ type PersonalRecord = {
   workoutName: string;
 };
 
+type Exercise = {
+  id: string;
+  name: string;
+  muscle_groups: string[];
+  equipment: string;
+  category: string;
+  created_at: string;
+};
+
+const SELECTED_EXERCISES_KEY = 'selected_exercises';
+
 export default function HomeScreen() {
   const { user, signOut } = useAuth()
   const [workouts, setWorkouts] = useState<Workout[]>([])
@@ -54,21 +66,48 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [personalRecords, setPersonalRecords] = useState<PersonalRecord[]>([])
-  const [selectedPRs, setSelectedPRs] = useState<PersonalRecord[]>([])
   const [showPRModal, setShowPRModal] = useState(false)
-  const [availableExercises, setAvailableExercises] = useState<string[]>([])
+  const [availableExercises, setAvailableExercises] = useState<Exercise[]>([])
+  const [selectedExercises, setSelectedExercises] = useState<string[]>([])
 
   useEffect(() => {
     if (user) {
       loadWorkouts()
+      loadAvailableExercises()
+      loadSelectedExercises()
     }
   }, [user])
 
   useEffect(() => {
-    if (workoutsWithSets.length > 0) {
+    if (workoutsWithSets.length > 0 && selectedExercises.length > 0) {
       calculatePersonalRecords()
+    } else {
+      setPersonalRecords([])
     }
-  }, [workoutsWithSets])
+  }, [workoutsWithSets, selectedExercises])
+
+  const loadSelectedExercises = async () => {
+    try {
+      const savedExercises = await AsyncStorage.getItem(SELECTED_EXERCISES_KEY)
+      if (savedExercises) {
+        setSelectedExercises(JSON.parse(savedExercises))
+      }
+    } catch (error) {
+      console.error('Error loading selected exercises:', error)
+    }
+  }
+
+  const saveSelectedExercises = async (exercises: string[]) => {
+    try {
+      await AsyncStorage.setItem(SELECTED_EXERCISES_KEY, JSON.stringify(exercises))
+      setSelectedExercises(exercises)
+      setShowPRModal(false)
+      Alert.alert('Success', 'Your exercise selections have been saved!')
+    } catch (error) {
+      console.error('Error saving selected exercises:', error)
+      Alert.alert('Error', 'Failed to save exercise selections')
+    }
+  }
 
   const loadWorkouts = async () => {
     if (!user) return
@@ -89,6 +128,20 @@ export default function HomeScreen() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  const loadAvailableExercises = async () => {
+    try {
+      const { data: exercisesData, error } = await supabase
+        .from('exercises')
+        .select('*')
+        .order('name')
+
+      if (error) throw error
+      setAvailableExercises(exercisesData || [])
+    } catch (error) {
+      console.error('Error loading exercises:', error)
     }
   }
 
@@ -131,7 +184,7 @@ export default function HomeScreen() {
         }))
 
         const totalVolume = setsWithExercises?.reduce((total: number, set: any) => {
-          return total + ((set.weight || 0) * set.reps) // Fixed: handle undefined weight
+          return total + ((set.weight || 0) * set.reps)
         }, 0) || 0
 
         // Count unique exercises
@@ -152,29 +205,29 @@ export default function HomeScreen() {
   }
 
   const calculatePersonalRecords = () => {
-    const allPRs: PersonalRecord[] = []
     const exercisePRs = new Map()
 
-    // Calculate PRs for each exercise
+    // Calculate PRs for each selected exercise
     workoutsWithSets.forEach(workout => {
       workout.sets?.forEach(set => {
-        // Fixed: Check if weight is defined and greater than 0
-        if (set.exercise && set.weight !== undefined && set.weight > 0) {
+        if (set.exercise && 
+            set.weight !== undefined && 
+            set.weight > 0 && 
+            selectedExercises.includes(set.exercise.name)) {
+          
           const exerciseName = set.exercise.name
           const currentPR = exercisePRs.get(exerciseName)
 
-          // Fixed: Use non-null assertion since we checked set.weight is defined
           if (!currentPR || set.weight > currentPR.weight) {
             const newPR: PersonalRecord = {
               exerciseName,
-              weight: set.weight, // This is now safe because we checked it's defined
+              weight: set.weight,
               reps: set.reps,
               date: workout.date,
               workoutId: workout.id,
               workoutName: workout.name || 'Unnamed Workout'
             }
             exercisePRs.set(exerciseName, newPR)
-            allPRs.push(newPR)
           }
         }
       })
@@ -185,15 +238,6 @@ export default function HomeScreen() {
       .sort((a, b) => b.weight - a.weight)
 
     setPersonalRecords(sortedPRs)
-    
-    // Auto-select top 3 PRs if none selected yet
-    if (selectedPRs.length === 0 && sortedPRs.length > 0) {
-      setSelectedPRs(sortedPRs.slice(0, 3))
-    }
-
-    // Get unique exercise names for selection
-    const exercises = Array.from(new Set(sortedPRs.map(pr => pr.exerciseName)))
-    setAvailableExercises(exercises)
   }
 
   const onRefresh = () => {
@@ -249,37 +293,75 @@ export default function HomeScreen() {
     router.push('/(tabs)/history')
   }
 
-  const togglePRSelection = (pr: PersonalRecord) => {
-    setSelectedPRs(prev => {
-      const isSelected = prev.some(selected => 
-        selected.exerciseName === pr.exerciseName && selected.workoutId === pr.workoutId
-      )
+  const toggleExerciseSelection = (exerciseName: string) => {
+    setSelectedExercises(prev => {
+      const isSelected = prev.includes(exerciseName)
       
       if (isSelected) {
         // Remove from selection
-        return prev.filter(selected => 
-          !(selected.exerciseName === pr.exerciseName && selected.workoutId === pr.workoutId)
-        )
+        return prev.filter(name => name !== exerciseName)
       } else {
-        // Add to selection (max 3)
+        // Add to selection (max 3 exercises)
         if (prev.length >= 3) {
-          Alert.alert('Limit Reached', 'You can only display up to 3 personal records on the home screen.')
+          Alert.alert('Limit Reached', 'You can only track PRs for up to 3 exercises at a time.')
           return prev
         }
-        return [...prev, pr]
+        return [...prev, exerciseName]
       }
     })
   }
 
-  const isPRSelected = (pr: PersonalRecord) => {
-    return selectedPRs.some(selected => 
-      selected.exerciseName === pr.exerciseName && selected.workoutId === pr.workoutId
-    )
+  const isExerciseSelected = (exerciseName: string) => {
+    return selectedExercises.includes(exerciseName)
   }
 
-  const getPRsByExercise = (exerciseName: string) => {
-    return personalRecords.filter(pr => pr.exerciseName === exerciseName)
-      .sort((a, b) => b.weight - a.weight)
+  const getPRForExercise = (exerciseName: string) => {
+    return personalRecords.find(pr => pr.exerciseName === exerciseName)
+  }
+
+  const renderPRList = () => {
+    if (personalRecords.length === 0) {
+      return (
+        <View style={styles.emptyPRContainer}>
+          <Ionicons name="trophy-outline" size={48} color="#C7C7CC" />
+          <Text style={styles.emptyText}>No PRs yet</Text>
+          <Text style={styles.emptySubtext}>
+            Complete workouts with your selected exercises to see personal records here
+          </Text>
+        </View>
+      )
+    }
+
+    return (
+      <View style={styles.prListContainer}>
+        {personalRecords.map((pr, index) => (
+          <View key={index} style={styles.prCard}>
+            <View style={styles.prHeader}>
+              <View style={styles.prBadgeContainer}>
+                <Ionicons name="trophy" size={16} color="#FF9500" />
+                <Text style={styles.prBadgeText}>Personal Record</Text>
+              </View>
+            </View>
+            
+            <Text style={styles.prExercise}>{pr.exerciseName}</Text>
+            
+            <View style={styles.prStats}>
+              <View style={styles.prStat}>
+                <Text style={styles.prStatValue}>{pr.weight}</Text>
+                <Text style={styles.prStatLabel}>lbs</Text>
+              </View>
+              <View style={styles.prStatDivider} />
+              <View style={styles.prStat}>
+                <Text style={styles.prStatValue}>{pr.reps}</Text>
+                <Text style={styles.prStatLabel}>reps</Text>
+              </View>
+            </View>
+            
+            <Text style={styles.prWorkout}>{pr.workoutName}</Text>
+          </View>
+        ))}
+      </View>
+    )
   }
 
   const renderPRModal = () => (
@@ -292,58 +374,76 @@ export default function HomeScreen() {
       <View style={styles.modalContainer}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={() => setShowPRModal(false)}>
-            <Text style={styles.modalCloseText}>Done</Text>
+            <Text style={styles.modalCloseText}>Cancel</Text>
           </TouchableOpacity>
-          <Text style={styles.modalTitle}>Select Personal Records</Text>
-          <View style={{ width: 60 }} />
+          <Text style={styles.modalTitle}>Select Exercises to Track</Text>
+          <TouchableOpacity 
+            onPress={() => saveSelectedExercises(selectedExercises)}
+            disabled={selectedExercises.length === 0}
+          >
+            <Text style={[
+              styles.modalSaveText,
+              selectedExercises.length === 0 && styles.modalSaveTextDisabled
+            ]}>
+              Save
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.modalDescription}>
+          <Text style={styles.modalDescriptionText}>
+            Choose up to 3 exercises to track personal records for. Only your heaviest lift for each exercise will be displayed.
+          </Text>
         </View>
 
         <FlatList
           data={availableExercises}
-          keyExtractor={(item) => item}
-          renderItem={({ item: exerciseName }) => (
-            <View style={styles.exerciseSection}>
-              <Text style={styles.exerciseSectionTitle}>{exerciseName}</Text>
-              {getPRsByExercise(exerciseName).map((pr, index) => (
-                <TouchableOpacity
-                  key={`${pr.exerciseName}-${pr.workoutId}`}
-                  style={[
-                    styles.prOption,
-                    isPRSelected(pr) && styles.prOptionSelected
-                  ]}
-                  onPress={() => togglePRSelection(pr)}
-                >
-                  <View style={styles.prOptionContent}>
-                    <Text style={styles.prExerciseName}>
-                      {pr.exerciseName}
-                      {index === 0 && <Text style={styles.prBadge}> • PR</Text>}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const isSelected = isExerciseSelected(item.name)
+            const pr = getPRForExercise(item.name)
+            
+            return (
+              <TouchableOpacity
+                style={[
+                  styles.exerciseOption,
+                  isSelected && styles.exerciseOptionSelected
+                ]}
+                onPress={() => toggleExerciseSelection(item.name)}
+              >
+                <View style={styles.exerciseOptionContent}>
+                  <Text style={styles.exerciseName}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.exerciseMuscles}>
+                    {item.muscle_groups?.join(', ') || 'No muscle groups'}
+                  </Text>
+                  {pr && (
+                    <Text style={styles.currentPR}>
+                      Current PR: {pr.weight} lbs × {pr.reps} reps
                     </Text>
-                    <Text style={styles.prDetails}>
-                      {pr.weight} kg × {pr.reps} reps • {formatDate(pr.date)}
-                    </Text>
-                    <Text style={styles.prWorkoutName}>{pr.workoutName}</Text>
-                  </View>
-                  <View style={styles.prSelection}>
-                    {isPRSelected(pr) ? (
-                      <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
-                    ) : (
-                      <View style={styles.unselectedCircle} />
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
+                  )}
+                </View>
+                <View style={styles.exerciseSelection}>
+                  {isSelected ? (
+                    <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
+                  ) : (
+                    <View style={styles.unselectedCircle} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            )
+          }}
           contentContainerStyle={styles.modalContent}
         />
 
         <View style={styles.modalFooter}>
           <Text style={styles.selectionCount}>
-            {selectedPRs.length}/3 selected
+            {selectedExercises.length}/3 selected
           </Text>
           <TouchableOpacity
             style={styles.clearSelectionButton}
-            onPress={() => setSelectedPRs([])}
+            onPress={() => setSelectedExercises([])}
           >
             <Text style={styles.clearSelectionText}>Clear All</Text>
           </TouchableOpacity>
@@ -405,53 +505,22 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
         
-        {selectedPRs.length === 0 ? (
+        {selectedExercises.length === 0 ? (
           <View style={styles.emptyPRContainer}>
             <Ionicons name="trophy-outline" size={48} color="#C7C7CC" />
-            <Text style={styles.emptyText}>No personal records selected</Text>
+            <Text style={styles.emptyText}>No exercises selected</Text>
             <Text style={styles.emptySubtext}>
-              Tap the configure button to select up to 3 PRs to display
+              Tap the configure button to select exercises to track personal records
             </Text>
             <TouchableOpacity 
               style={styles.configurePRButton}
               onPress={() => setShowPRModal(true)}
             >
-              <Text style={styles.configurePRButtonText}>Configure PRs</Text>
+              <Text style={styles.configurePRButtonText}>Select Exercises</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          selectedPRs.map((pr, index) => (
-            <View key={`${pr.exerciseName}-${pr.workoutId}`} style={styles.prCard}>
-              <View style={styles.prHeader}>
-                <View style={styles.prBadgeContainer}>
-                  <Ionicons name="trophy" size={16} color="#FF9500" />
-                  <Text style={styles.prBadgeText}>PR #{index + 1}</Text>
-                </View>
-                <Text style={styles.prDate}>{formatDate(pr.date)}</Text>
-              </View>
-              
-              <Text style={styles.prExercise}>{pr.exerciseName}</Text>
-              
-              <View style={styles.prStats}>
-                <View style={styles.prStat}>
-                  <Text style={styles.prStatValue}>{pr.weight}</Text>
-                  <Text style={styles.prStatLabel}>kg</Text>
-                </View>
-                <View style={styles.prStatDivider} />
-                <View style={styles.prStat}>
-                  <Text style={styles.prStatValue}>{pr.reps}</Text>
-                  <Text style={styles.prStatLabel}>reps</Text>
-                </View>
-                <View style={styles.prStatDivider} />
-                <View style={styles.prStat}>
-                  <Text style={styles.prStatValue}>{pr.weight * pr.reps}</Text>
-                  <Text style={styles.prStatLabel}>volume</Text>
-                </View>
-              </View>
-              
-              <Text style={styles.prWorkout}>{pr.workoutName}</Text>
-            </View>
-          ))
+          renderPRList()
         )}
       </View>
 
@@ -644,26 +713,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  // PR Card Styles
+  // PR List Styles
+  prListContainer: {
+    gap: 12,
+  },
   prCard: {
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF9500',
+    marginBottom: 8,
   },
   prHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   prBadgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFF4E6',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
   },
@@ -672,10 +742,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FF9500',
     marginLeft: 4,
-  },
-  prDate: {
-    fontSize: 12,
-    color: '#666',
   },
   prExercise: {
     fontSize: 18,
@@ -693,14 +759,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   prStatValue: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#007AFF',
   },
   prStatLabel: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#666',
-    marginTop: 2,
+    marginTop: 4,
   },
   prStatDivider: {
     width: 1,
@@ -736,6 +802,26 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
+  modalSaveText: {
+    color: '#007AFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalSaveTextDisabled: {
+    color: '#C7C7CC',
+  },
+  modalDescription: {
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalDescriptionText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
   modalContent: {
     paddingBottom: 20,
   },
@@ -760,18 +846,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  exerciseSection: {
-    marginBottom: 16,
-  },
-  exerciseSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: '#f5f5f5',
-  },
-  prOption: {
+  exerciseOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -779,34 +854,29 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  prOptionSelected: {
+  exerciseOptionSelected: {
     backgroundColor: '#f0f8ff',
   },
-  prOptionContent: {
+  exerciseOptionContent: {
     flex: 1,
   },
-  prExerciseName: {
+  exerciseName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
     marginBottom: 4,
   },
-  prBadge: {
-    fontSize: 12,
-    color: '#FF9500',
-    fontWeight: '600',
-  },
-  prDetails: {
+  exerciseMuscles: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  prWorkoutName: {
+  currentPR: {
     fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
+    color: '#34C759',
+    fontWeight: '500',
   },
-  prSelection: {
+  exerciseSelection: {
     marginLeft: 12,
   },
   unselectedCircle: {
