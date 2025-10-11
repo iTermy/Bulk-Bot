@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Home screen with vertical PR list
+// app/(tabs)/index.tsx - Home screen with centered PR layout
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
@@ -112,7 +112,6 @@ export default function HomeScreen() {
     if (!user) return
     
     try {
-      // Load basic workouts for the recent section
       const { data, error } = await getUserWorkouts(user.id)
       if (error) {
         console.error('Error loading workouts:', error)
@@ -120,7 +119,6 @@ export default function HomeScreen() {
         setWorkouts(data || [])
       }
 
-      // Load detailed workouts with sets for PR calculation
       await loadWorkoutsWithSets()
     } catch (error) {
       console.error('Unexpected error:', error)
@@ -146,7 +144,6 @@ export default function HomeScreen() {
 
   const loadWorkoutsWithSets = async () => {
     try {
-      // Fetch workouts with sets
       const { data: workoutsData, error: workoutsError } = await supabase
         .from('workouts')
         .select(`
@@ -161,22 +158,18 @@ export default function HomeScreen() {
 
       if (workoutsError) throw workoutsError
 
-      // Fetch all exercises separately
       const { data: exercisesData, error: exercisesError } = await supabase
         .from('exercises')
         .select('*')
 
       if (exercisesError) throw exercisesError
 
-      // Create a map of exercises for quick lookup
       const exercisesMap = new Map()
       exercisesData?.forEach(exercise => {
         exercisesMap.set(exercise.id, exercise)
       })
 
-      // Process workouts to add calculated fields and exercise data
       const processedWorkouts = workoutsData?.map(workout => {
-        // Add exercise data to each set
         const setsWithExercises = workout.sets?.map((set: any) => ({
           ...set,
           exercise: exercisesMap.get(set.exercise_id) || { name: 'Unknown Exercise', muscle_groups: [] }
@@ -186,7 +179,6 @@ export default function HomeScreen() {
           return total + ((set.weight || 0) * set.reps)
         }, 0) || 0
 
-        // Count unique exercises
         const uniqueExercises = new Set(setsWithExercises?.map((set: any) => set.exercise_id))
         
         return {
@@ -206,7 +198,6 @@ export default function HomeScreen() {
   const calculatePersonalRecords = () => {
     const exercisePRs = new Map()
 
-    // Calculate PRs for each selected exercise
     workoutsWithSets.forEach(workout => {
       workout.sets?.forEach(set => {
         if (set.exercise && 
@@ -217,7 +208,12 @@ export default function HomeScreen() {
           const exerciseName = set.exercise.name
           const currentPR = exercisePRs.get(exerciseName)
 
-          if (!currentPR || set.weight > currentPR.weight) {
+          // Compare by weight first, then by reps if weight is equal
+          const shouldUpdatePR = !currentPR || 
+            set.weight > currentPR.weight || 
+            (set.weight === currentPR.weight && set.reps > currentPR.reps)
+
+          if (shouldUpdatePR) {
             const newPR: PersonalRecord = {
               exerciseName,
               weight: set.weight,
@@ -232,7 +228,6 @@ export default function HomeScreen() {
       })
     })
 
-    // Convert map values to array and sort by weight (descending)
     const sortedPRs = Array.from(exercisePRs.values())
       .sort((a, b) => b.weight - a.weight)
 
@@ -270,12 +265,23 @@ export default function HomeScreen() {
   }
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
+    let date: Date;
+    
+    // Handle both ISO datetime strings and date-only strings
+    if (dateString.includes('T')) {
+      // Full ISO datetime string
+      date = new Date(dateString);
+    } else {
+      // Date-only string like "2025-10-11" - parse in local timezone
+      const [year, month, day] = dateString.split('-').map(Number);
+      date = new Date(year, month - 1, day);
+    }
+    
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric',
       year: 'numeric'
-    })
+    });
   }
 
   const navigateToWorkoutDetails = (workout: Workout) => {
@@ -297,10 +303,8 @@ export default function HomeScreen() {
       const isSelected = prev.includes(exerciseName)
       
       if (isSelected) {
-        // Remove from selection
         return prev.filter(name => name !== exerciseName)
       } else {
-        // Add to selection (max 3 exercises)
         if (prev.length >= 3) {
           Alert.alert('Limit Reached', 'You can only track PRs for up to 3 exercises at a time.')
           return prev
@@ -335,11 +339,9 @@ export default function HomeScreen() {
       <View style={styles.prListContainer}>
         {personalRecords.map((pr, index) => (
           <View key={index} style={styles.prCard}>
-            <View style={styles.prHeader}>
-              <View style={styles.prBadgeContainer}>
-                <Ionicons name="trophy" size={16} color="#FF9500" />
-                <Text style={styles.prBadgeText}>Personal Record</Text>
-              </View>
+            <View style={styles.prBadgeContainer}>
+              <Ionicons name="trophy" size={16} color="#FF9500" />
+              <Text style={styles.prBadgeText}>Personal Record</Text>
             </View>
             
             <Text style={styles.prExercise}>{pr.exerciseName}</Text>
@@ -356,7 +358,7 @@ export default function HomeScreen() {
               </View>
             </View>
             
-            <Text style={styles.prWorkout}>{pr.workoutName}</Text>
+            <Text style={styles.prDate}>{formatDate(pr.date)}</Text>
           </View>
         ))}
       </View>
@@ -458,7 +460,6 @@ export default function HomeScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Welcome back!</Text>
@@ -469,7 +470,6 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Stats Cards */}
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
           <Ionicons name="calendar-outline" size={24} color="#007AFF" />
@@ -492,7 +492,6 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Personal Records Section */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Personal Records</Text>
@@ -523,7 +522,6 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Recent Workouts */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent Workouts</Text>
@@ -712,7 +710,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  // PR List Styles
   prListContainer: {
     gap: 12,
   },
@@ -721,12 +718,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 8,
-  },
-  prHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
   prBadgeContainer: {
     flexDirection: 'row',
@@ -735,6 +727,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+    marginBottom: 12,
   },
   prBadgeText: {
     fontSize: 12,
@@ -747,11 +740,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
+    textAlign: 'center',
   },
   prStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
+    width: '80%',
   },
   prStat: {
     alignItems: 'center',
@@ -772,12 +767,11 @@ const styles = StyleSheet.create({
     height: 30,
     backgroundColor: '#e0e0e0',
   },
-  prWorkout: {
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
+  prDate: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
   },
-  // Modal Styles
   modalContainer: {
     flex: 1,
     backgroundColor: 'white',
