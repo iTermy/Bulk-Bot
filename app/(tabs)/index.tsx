@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Home screen with centered PR layout
+// app/(tabs)/index.tsx - Home screen with calendar, streak system, and centered PR layout
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
@@ -57,6 +57,9 @@ type Exercise = {
 };
 
 const SELECTED_EXERCISES_KEY = 'selected_exercises';
+const WORKOUT_DAYS_KEY = 'workout_days';
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function HomeScreen() {
   const { user, signOut } = useAuth()
@@ -66,14 +69,20 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true)
   const [personalRecords, setPersonalRecords] = useState<PersonalRecord[]>([])
   const [showPRModal, setShowPRModal] = useState(false)
+  const [showWorkoutDaysModal, setShowWorkoutDaysModal] = useState(false)
+  const [showStreakBadgesModal, setShowStreakBadgesModal] = useState(false)
   const [availableExercises, setAvailableExercises] = useState<Exercise[]>([])
   const [selectedExercises, setSelectedExercises] = useState<string[]>([])
+  const [selectedWorkoutDays, setSelectedWorkoutDays] = useState<number[]>([])
+  const [currentStreak, setCurrentStreak] = useState(0)
+  const [streakBadge, setStreakBadge] = useState<string>('🔥')
 
   useEffect(() => {
     if (user) {
       loadWorkouts()
       loadAvailableExercises()
       loadSelectedExercises()
+      loadWorkoutDays()
     }
   }, [user])
 
@@ -84,6 +93,12 @@ export default function HomeScreen() {
       setPersonalRecords([])
     }
   }, [workoutsWithSets, selectedExercises])
+
+  useEffect(() => {
+    if (workouts.length > 0 && selectedWorkoutDays.length > 0) {
+      calculateStreak()
+    }
+  }, [workouts, selectedWorkoutDays])
 
   const loadSelectedExercises = async () => {
     try {
@@ -96,6 +111,17 @@ export default function HomeScreen() {
     }
   }
 
+  const loadWorkoutDays = async () => {
+    try {
+      const savedDays = await AsyncStorage.getItem(WORKOUT_DAYS_KEY)
+      if (savedDays) {
+        setSelectedWorkoutDays(JSON.parse(savedDays))
+      }
+    } catch (error) {
+      console.error('Error loading workout days:', error)
+    }
+  }
+
   const saveSelectedExercises = async (exercises: string[]) => {
     try {
       await AsyncStorage.setItem(SELECTED_EXERCISES_KEY, JSON.stringify(exercises))
@@ -105,6 +131,105 @@ export default function HomeScreen() {
     } catch (error) {
       console.error('Error saving selected exercises:', error)
       Alert.alert('Error', 'Failed to save exercise selections')
+    }
+  }
+
+  const saveWorkoutDays = async (days: number[]) => {
+    try {
+      await AsyncStorage.setItem(WORKOUT_DAYS_KEY, JSON.stringify(days))
+      setSelectedWorkoutDays(days)
+      setShowWorkoutDaysModal(false)
+      Alert.alert('Success', 'Your workout schedule has been saved!')
+    } catch (error) {
+      console.error('Error saving workout days:', error)
+      Alert.alert('Error', 'Failed to save workout schedule')
+    }
+  }
+
+  const calculateStreak = () => {
+    if (selectedWorkoutDays.length === 0 || workouts.length === 0) {
+      setCurrentStreak(0)
+      return
+    }
+
+    // Sort workouts by date (most recent first)
+    const sortedWorkouts = [...workouts].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
+
+    // Get dates of workouts (normalize to start of day)
+    const workoutDates = new Set(
+      sortedWorkouts.map(w => {
+        const date = new Date(w.date)
+        date.setHours(0, 0, 0, 0)
+        return date.getTime()
+      })
+    )
+
+    let streak = 0
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    // Start checking from most recent scheduled workout day
+    let checkDate = new Date(today)
+    
+    // If today is a scheduled workout day and no workout logged, streak is broken
+    if (selectedWorkoutDays.includes(today.getDay()) && !workoutDates.has(today.getTime())) {
+      setCurrentStreak(0)
+      return
+    }
+
+    // Check backwards through scheduled workout days
+    while (true) {
+      // Find the previous scheduled workout day
+      let foundScheduledDay = false
+      for (let i = 0; i < 14; i++) { // Check up to 2 weeks back
+        checkDate.setDate(checkDate.getDate() - 1)
+        
+        if (selectedWorkoutDays.includes(checkDate.getDay())) {
+          foundScheduledDay = true
+          
+          // Check if there's a workout on this scheduled day
+          if (workoutDates.has(checkDate.getTime())) {
+            streak++
+          } else {
+            // Missed a scheduled workout day - streak broken
+            setCurrentStreak(streak)
+            updateStreakBadge(streak)
+            return
+          }
+          break
+        }
+      }
+      
+      if (!foundScheduledDay) {
+        // No more scheduled days found in reasonable range
+        break
+      }
+    }
+
+    setCurrentStreak(streak)
+    updateStreakBadge(streak)
+  }
+
+  const updateStreakBadge = (streak: number) => {
+    const months = Math.floor(streak / 30)
+    if (months >= 12) {
+      setStreakBadge('👑') // 1 year+
+    } else if (months >= 6) {
+      setStreakBadge('💎') // 6 months
+    } else if (months >= 3) {
+      setStreakBadge('⭐') // 3 months
+    } else if (months >= 2) {
+      setStreakBadge('🏆') // 2 months
+    } else if (months >= 1) {
+      setStreakBadge('🥇') // 1 month
+    } else if (streak >= 14) {
+      setStreakBadge('🔥') // 2 weeks
+    } else if (streak >= 7) {
+      setStreakBadge('💪') // 1 week
+    } else {
+      setStreakBadge('🔥') // Default
     }
   }
 
@@ -208,7 +333,6 @@ export default function HomeScreen() {
           const exerciseName = set.exercise.name
           const currentPR = exercisePRs.get(exerciseName)
 
-          // Compare by weight first, then by reps if weight is equal
           const shouldUpdatePR = !currentPR || 
             set.weight > currentPR.weight || 
             (set.weight === currentPR.weight && set.reps > currentPR.reps)
@@ -267,12 +391,9 @@ export default function HomeScreen() {
   const formatDate = (dateString: string) => {
     let date: Date;
     
-    // Handle both ISO datetime strings and date-only strings
     if (dateString.includes('T')) {
-      // Full ISO datetime string
       date = new Date(dateString);
     } else {
-      // Date-only string like "2025-10-11" - parse in local timezone
       const [year, month, day] = dateString.split('-').map(Number);
       date = new Date(year, month - 1, day);
     }
@@ -314,12 +435,64 @@ export default function HomeScreen() {
     })
   }
 
+  const toggleWorkoutDay = (dayIndex: number) => {
+    setSelectedWorkoutDays(prev => {
+      const isSelected = prev.includes(dayIndex)
+      
+      if (isSelected) {
+        return prev.filter(d => d !== dayIndex)
+      } else {
+        return [...prev, dayIndex].sort((a, b) => a - b)
+      }
+    })
+  }
+
   const isExerciseSelected = (exerciseName: string) => {
     return selectedExercises.includes(exerciseName)
   }
 
+  const isWorkoutDay = (dayIndex: number) => {
+    return selectedWorkoutDays.includes(dayIndex)
+  }
+
   const getPRForExercise = (exerciseName: string) => {
     return personalRecords.find(pr => pr.exerciseName === exerciseName)
+  }
+
+  const getStreakMessage = () => {
+    const months = Math.floor(currentStreak / 30)
+    if (months >= 12) return 'Legendary! 1 Year+'
+    if (months >= 6) return 'Diamond! 6 Months'
+    if (months >= 3) return 'Superstar! 3 Months'
+    if (months >= 2) return 'Champion! 2 Months'
+    if (months >= 1) return 'Gold! 1 Month'
+    if (currentStreak >= 14) return 'On Fire! 2 Weeks'
+    if (currentStreak >= 7) return 'Strong! 1 Week'
+    if (currentStreak > 0) return `Keep going!`
+    return 'Start your streak!'
+  }
+
+  const getStreakBadges = () => {
+    return [
+      { emoji: '🔥', name: 'Starter', days: 0, description: 'Begin your journey' },
+      { emoji: '💪', name: 'Strong', days: 7, description: '1 week streak' },
+      { emoji: '🔥', name: 'On Fire', days: 14, description: '2 weeks streak' },
+      { emoji: '🥇', name: 'Gold', days: 30, description: '1 month streak' },
+      { emoji: '🏆', name: 'Champion', days: 60, description: '2 months streak' },
+      { emoji: '⭐', name: 'Superstar', days: 90, description: '3 months streak' },
+      { emoji: '💎', name: 'Diamond', days: 180, description: '6 months streak' },
+      { emoji: '👑', name: 'Legendary', days: 360, description: '1 year+ streak' },
+    ]
+  }
+
+  const getCurrentBadgeIndex = () => {
+    const badges = getStreakBadges()
+    for (let i = badges.length - 1; i >= 0; i--) {
+      if (currentStreak >= badges[i].days) {
+        return i
+      }
+    }
+    return 0
   }
 
   const renderPRList = () => {
@@ -453,6 +626,185 @@ export default function HomeScreen() {
     </Modal>
   )
 
+  const renderWorkoutDaysModal = () => (
+    <Modal
+      visible={showWorkoutDaysModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowWorkoutDaysModal(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowWorkoutDaysModal(false)}>
+            <Text style={styles.modalCloseText}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Select Workout Days</Text>
+          <TouchableOpacity 
+            onPress={() => saveWorkoutDays(selectedWorkoutDays)}
+            disabled={selectedWorkoutDays.length === 0}
+          >
+            <Text style={[
+              styles.modalSaveText,
+              selectedWorkoutDays.length === 0 && styles.modalSaveTextDisabled
+            ]}>
+              Save
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.modalDescription}>
+          <Text style={styles.modalDescriptionText}>
+            Choose the days you plan to workout. Your streak will be tracked based on these scheduled days.
+          </Text>
+        </View>
+
+        <View style={styles.daysContainer}>
+          {DAYS_OF_WEEK.map((day, index) => {
+            const isSelected = isWorkoutDay(index)
+            
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.dayOption,
+                  isSelected && styles.dayOptionSelected
+                ]}
+                onPress={() => toggleWorkoutDay(index)}
+              >
+                <Text style={[
+                  styles.dayText,
+                  isSelected && styles.dayTextSelected
+                ]}>
+                  {day}
+                </Text>
+                <View style={styles.dayCheckbox}>
+                  {isSelected && (
+                    <Ionicons name="checkmark" size={20} color="#007AFF" />
+                  )}
+                </View>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        <View style={styles.modalFooter}>
+          <Text style={styles.selectionCount}>
+            {selectedWorkoutDays.length} day{selectedWorkoutDays.length !== 1 ? 's' : ''} selected
+          </Text>
+          <TouchableOpacity
+            style={styles.clearSelectionButton}
+            onPress={() => setSelectedWorkoutDays([])}
+          >
+            <Text style={styles.clearSelectionText}>Clear All</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  )
+
+  const renderStreakBadgesModal = () => {
+    const badges = getStreakBadges()
+    const currentBadgeIndex = getCurrentBadgeIndex()
+
+    return (
+      <Modal
+        visible={showStreakBadgesModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowStreakBadgesModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <View style={{ width: 60 }} />
+            <Text style={styles.modalTitle}>Streak Badges</Text>
+            <TouchableOpacity onPress={() => setShowStreakBadgesModal(false)}>
+              <Text style={styles.modalCloseText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalDescription}>
+            <Text style={styles.modalDescriptionText}>
+              Keep your streak going to unlock new badges! Complete workouts on your scheduled days.
+            </Text>
+          </View>
+
+          <ScrollView style={styles.badgesScrollView}>
+            {badges.map((badge, index) => {
+              const isUnlocked = currentStreak >= badge.days
+              const isCurrent = index === currentBadgeIndex
+              const daysUntilUnlock = badge.days - currentStreak
+
+              return (
+                <View 
+                  key={index}
+                  style={[
+                    styles.badgeCard,
+                    isCurrent && styles.badgeCardCurrent
+                  ]}
+                >
+                  <View style={[
+                    styles.badgeIconContainer,
+                    isUnlocked && styles.badgeIconUnlocked,
+                    isCurrent && styles.badgeIconCurrent
+                  ]}>
+                    <Text style={[
+                      styles.badgeEmoji,
+                      !isUnlocked && styles.badgeEmojiLocked
+                    ]}>
+                      {badge.emoji}
+                    </Text>
+                  </View>
+
+                  <View style={styles.badgeInfo}>
+                    <View style={styles.badgeHeader}>
+                      <Text style={[
+                        styles.badgeName,
+                        !isUnlocked && styles.badgeNameLocked
+                      ]}>
+                        {badge.name}
+                      </Text>
+                      {isCurrent && (
+                        <View style={styles.currentBadge}>
+                          <Text style={styles.currentBadgeText}>CURRENT</Text>
+                        </View>
+                      )}
+                      {!isUnlocked && index === currentBadgeIndex + 1 && (
+                        <View style={styles.nextBadge}>
+                          <Text style={styles.nextBadgeText}>NEXT</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[
+                      styles.badgeDescription,
+                      !isUnlocked && styles.badgeDescriptionLocked
+                    ]}>
+                      {badge.description}
+                    </Text>
+                    <Text style={[
+                      styles.badgeDays,
+                      !isUnlocked && styles.badgeDaysLocked
+                    ]}>
+                      {badge.days === 0 ? 'Starting point' : `${badge.days} day${badge.days !== 1 ? 's' : ''}`}
+                    </Text>
+                    {!isUnlocked && daysUntilUnlock > 0 && (
+                      <Text style={styles.daysRemaining}>
+                        {daysUntilUnlock} day{daysUntilUnlock !== 1 ? 's' : ''} to unlock
+                      </Text>
+                    )}
+                  </View>
+
+                  {isUnlocked && (
+                    <Ionicons name="checkmark-circle" size={28} color="#34C759" />
+                  )}
+                </View>
+              )
+            })}
+          </ScrollView>
+        </View>
+      </Modal>
+    )
+  }
+
   return (
     <ScrollView 
       style={styles.container}
@@ -468,6 +820,56 @@ export default function HomeScreen() {
         <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
           <Ionicons name="log-out-outline" size={24} color="#FF3B30" />
         </TouchableOpacity>
+      </View>
+
+      {/* Streak Card */}
+      <View style={styles.streakSection}>
+        <TouchableOpacity 
+          style={styles.streakCard}
+          onPress={() => setShowStreakBadgesModal(true)}
+        >
+          <TouchableOpacity 
+            style={styles.streakBadge}
+            onPress={() => setShowStreakBadgesModal(true)}
+          >
+            <Text style={styles.streakEmoji}>{streakBadge}</Text>
+          </TouchableOpacity>
+          <View style={styles.streakInfo}>
+            <Text style={styles.streakNumber}>{currentStreak}</Text>
+            <Text style={styles.streakLabel}>Day Streak</Text>
+            <Text style={styles.streakMessage}>{getStreakMessage()}</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.calendarIcon}
+            onPress={() => setShowWorkoutDaysModal(true)}
+          >
+            <Ionicons name="calendar-outline" size={24} color="#007AFF" />
+          </TouchableOpacity>
+        </TouchableOpacity>
+        
+        {selectedWorkoutDays.length > 0 && (
+          <View style={styles.scheduledDays}>
+            <Text style={styles.scheduledDaysLabel}>Workout Days:</Text>
+            <View style={styles.daysRow}>
+              {DAYS_OF_WEEK.map((day, index) => (
+                <View 
+                  key={index}
+                  style={[
+                    styles.dayBubble,
+                    isWorkoutDay(index) && styles.dayBubbleActive
+                  ]}
+                >
+                  <Text style={[
+                    styles.dayBubbleText,
+                    isWorkoutDay(index) && styles.dayBubbleTextActive
+                  ]}>
+                    {DAY_ABBREVIATIONS[index]}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
       </View>
 
       <View style={styles.statsContainer}>
@@ -567,6 +969,8 @@ export default function HomeScreen() {
       </View>
 
       {renderPRModal()}
+      {renderWorkoutDaysModal()}
+      {renderStreakBadgesModal()}
     </ScrollView>
   )
 }
@@ -598,10 +1002,96 @@ const styles = StyleSheet.create({
   logoutButton: {
     padding: 8,
   },
+  streakSection: {
+    padding: 20,
+    paddingTop: 10,
+  },
+  streakCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  streakBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FFF4E6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  streakEmoji: {
+    fontSize: 32,
+  },
+  streakInfo: {
+    flex: 1,
+  },
+  streakNumber: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  streakLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  streakMessage: {
+    fontSize: 12,
+    color: '#FF9500',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  calendarIcon: {
+    padding: 8,
+  },
+  scheduledDays: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+  },
+  scheduledDaysLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 12,
+  },
+  daysRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dayBubble: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayBubbleActive: {
+    backgroundColor: '#007AFF',
+  },
+  dayBubbleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#999',
+  },
+  dayBubbleTextActive: {
+    color: 'white',
+  },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
   },
   statCard: {
     backgroundColor: 'white',
@@ -878,5 +1368,145 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderColor: '#ccc',
+  },
+  daysContainer: {
+    padding: 20,
+  },
+  dayOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  dayOptionSelected: {
+    backgroundColor: '#e6f2ff',
+    borderWidth: 2,
+    borderColor: '#007AFF',
+  },
+  dayText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  dayTextSelected: {
+    color: '#007AFF',
+  },
+  dayCheckbox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgesScrollView: {
+    flex: 1,
+    padding: 20,
+  },
+  badgeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  badgeCardCurrent: {
+    backgroundColor: '#e6f2ff',
+    borderColor: '#007AFF',
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  badgeIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  badgeIconUnlocked: {
+    backgroundColor: '#FFF4E6',
+  },
+  badgeIconCurrent: {
+    backgroundColor: '#007AFF',
+  },
+  badgeEmoji: {
+    fontSize: 32,
+  },
+  badgeEmojiLocked: {
+    opacity: 0.3,
+  },
+  badgeInfo: {
+    flex: 1,
+  },
+  badgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  badgeName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginRight: 8,
+  },
+  badgeNameLocked: {
+    color: '#999',
+  },
+  currentBadge: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  currentBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  nextBadge: {
+    backgroundColor: '#FF9500',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  nextBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  badgeDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+  },
+  badgeDescriptionLocked: {
+    color: '#999',
+  },
+  badgeDays: {
+    fontSize: 12,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  badgeDaysLocked: {
+    color: '#ccc',
+  },
+  daysRemaining: {
+    fontSize: 11,
+    color: '#FF9500',
+    marginTop: 4,
+    fontWeight: '500',
   },
 })
