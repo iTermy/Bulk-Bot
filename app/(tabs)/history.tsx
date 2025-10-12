@@ -43,7 +43,6 @@ type Set = {
 
 type WorkoutWithSets = Workout & {
   sets: Set[];
-  totalVolume?: number;
   exerciseCount?: number;
 };
 
@@ -101,8 +100,6 @@ export default function HistoryScreen() {
         exercisesMap.set(exercise.id, exercise);
       });
 
-      if (workoutsError) throw workoutsError;
-
       // Process workouts to add calculated fields and exercise data
       const processedWorkouts = workoutsData?.map(workout => {
         // Add exercise data to each set
@@ -111,17 +108,12 @@ export default function HistoryScreen() {
           exercise: exercisesMap.get(set.exercise_id) || { name: 'Unknown Exercise', muscle_groups: [] }
         }));
 
-        const totalVolume = setsWithExercises?.reduce((total: number, set: any) => {
-          return total + (set.weight * set.reps);
-        }, 0) || 0;
-
         // Count unique exercises
         const uniqueExercises = new Set(setsWithExercises?.map((set: any) => set.exercise_id));
         
         return {
           ...workout,
           sets: setsWithExercises || [],
-          totalVolume,
           exerciseCount: uniqueExercises.size,
         };
       }) || [];
@@ -277,13 +269,6 @@ export default function HistoryScreen() {
     return `${mins} min`;
   };
 
-  const formatVolume = (volume: number) => {
-    if (volume >= 1000) {
-      return `${(volume / 1000).toFixed(1)}k kg`;
-    }
-    return `${volume} kg`;
-  };
-
   const groupSetsByExercise = (sets: Set[]) => {
     const grouped: { [key: string]: Set[] } = {};
     sets?.forEach(set => {
@@ -321,10 +306,6 @@ export default function HistoryScreen() {
           <Ionicons name="time-outline" size={16} color="#666" />
           <Text style={styles.statText}>{formatDuration(item.duration_minutes)}</Text>
         </View>
-        <View style={styles.statItem}>
-          <Ionicons name="analytics-outline" size={16} color="#666" />
-          <Text style={styles.statText}>{formatVolume(item.totalVolume || 0)}</Text>
-        </View>
       </View>
 
       {item.sets && item.sets.length > 0 && (
@@ -359,7 +340,6 @@ export default function HistoryScreen() {
   const renderStats = () => {
     const totalWorkouts = filteredWorkouts.length;
     const totalMinutes = filteredWorkouts.reduce((sum, w) => sum + (w.duration_minutes || 0), 0);
-    const totalVolume = filteredWorkouts.reduce((sum, w) => sum + (w.totalVolume || 0), 0);
 
     return (
       <View style={styles.statsContainer}>
@@ -370,10 +350,6 @@ export default function HistoryScreen() {
         <View style={styles.statsCard}>
           <Text style={styles.statsValue}>{formatDuration(totalMinutes)}</Text>
           <Text style={styles.statsLabel}>Total Time</Text>
-        </View>
-        <View style={styles.statsCard}>
-          <Text style={styles.statsValue}>{formatVolume(totalVolume)}</Text>
-          <Text style={styles.statsLabel}>Total Volume</Text>
         </View>
       </View>
     );
@@ -514,12 +490,6 @@ export default function HistoryScreen() {
                     </Text>
                   </View>
                   <View style={styles.detailStatItem}>
-                    <Text style={styles.detailStatLabel}>Total Volume</Text>
-                    <Text style={styles.detailStatValue}>
-                      {formatVolume(selectedWorkout.totalVolume || 0)}
-                    </Text>
-                  </View>
-                  <View style={styles.detailStatItem}>
                     <Text style={styles.detailStatLabel}>Exercises</Text>
                     <Text style={styles.detailStatValue}>
                       {selectedWorkout.exerciseCount || 0}
@@ -544,7 +514,7 @@ export default function HistoryScreen() {
                           <View key={set.id} style={styles.setDetail}>
                             <Text style={styles.setNumber}>Set {set.set_number}</Text>
                             <Text style={styles.setInfo}>
-                              {set.weight} kg × {set.reps} reps
+                              {set.weight} lbs × {set.reps} reps
                             </Text>
                           </View>
                         ))}
