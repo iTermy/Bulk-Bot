@@ -50,48 +50,14 @@ interface Template {
   last_used_at: string | null;
   created_at: string;
   template_exercises: TemplateExercise[];
-  // New fields for recommended templates
   is_recommended?: boolean;
   difficulty_level?: 'beginner' | 'intermediate' | 'advanced';
   frequency?: string;
   description?: string;
   tags?: string[];
   badge_type?: 'popular' | 'new' | 'featured' | null;
-  user_id?: string; // This will be null for recommended templates
+  user_id?: string;
 }
-
-// Mock recommended templates data
-const RECOMMENDED_TEMPLATES = [
-  {
-    id: 'rec-1',
-    name: 'Push Day',
-    exercises: 6,
-    duration: '45-50 min',
-    muscleGroups: ['Chest', 'Shoulders', 'Triceps'],
-    subtitle: '3 days/week • Intermediate',
-    description: 'Classic push workout for upper body strength',
-    isPopular: true
-  },
-  {
-    id: 'rec-2',
-    name: 'Pull Day',
-    exercises: 6,
-    duration: '50-55 min',
-    muscleGroups: ['Back', 'Biceps', 'Rear Delts'],
-    subtitle: '3 days/week • Intermediate',
-    description: 'Back and biceps focused pulling movements',
-    isNew: true
-  },
-  {
-    id: 'rec-3',
-    name: 'Full Body Beginner',
-    exercises: 8,
-    duration: '40-45 min',
-    muscleGroups: ['Full Body', 'Compound'],
-    subtitle: '2 days/week • Beginner',
-    description: 'Perfect for starting your fitness journey'
-  }
-];
 
 const FILTER_CATEGORIES = [
   { id: 'all', name: 'All' },
@@ -104,16 +70,28 @@ const FILTER_CATEGORIES = [
   { id: 'cardio', name: 'Cardio' }
 ];
 
+const DIFFICULTY_OPTIONS = [
+  { id: 'beginner', name: 'Beginner' },
+  { id: 'intermediate', name: 'Intermediate' },
+  { id: 'advanced', name: 'Advanced' }
+];
+
+const FREQUENCY_OPTIONS = [
+  { id: '1-2 days/week', name: '1-2 days/week' },
+  { id: '2-3 days/week', name: '2-3 days/week' },
+  { id: '3-4 days/week', name: '3-4 days/week' },
+  { id: '4-5 days/week', name: '4-5 days/week' },
+  { id: '5-6 days/week', name: '5-6 days/week' },
+  { id: 'Custom', name: 'Custom' }
+];
+
 export default function TemplatesScreen() {
   const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [recommendedTemplates, setRecommendedTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [exercisePickerVisible, setExercisePickerVisible] = useState(false);
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [addTemplateModalVisible, setAddTemplateModalVisible] = useState(false);
+  const [currentModal, setCurrentModal] = useState<'none' | 'create' | 'exercise' | 'detail' | 'addConfirm'>('none');
   
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [templateToAdd, setTemplateToAdd] = useState<Template | null>(null);
@@ -124,7 +102,12 @@ export default function TemplatesScreen() {
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [activeExerciseFilter, setActiveExerciseFilter] = useState('all');
   
-  // New state for search and filters
+  // New template metadata fields
+  const [templateDifficulty, setTemplateDifficulty] = useState<'beginner' | 'intermediate' | 'advanced' | ''>('');
+  const [templateFrequency, setTemplateFrequency] = useState('');
+  const [templateTags, setTemplateTags] = useState<string[]>([]);
+  const [customFrequency, setCustomFrequency] = useState('');
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [expandedSections, setExpandedSections] = useState({
@@ -181,7 +164,7 @@ export default function TemplatesScreen() {
 
   const handleAddRecommendedTemplate = (template: Template) => {
     setTemplateToAdd(template);
-    setAddTemplateModalVisible(true);
+    setCurrentModal('addConfirm');
   };
 
   const handleConfirmAddTemplate = async () => {
@@ -193,9 +176,9 @@ export default function TemplatesScreen() {
       
       if (error) throw error;
       
-      setAddTemplateModalVisible(false);
+      setCurrentModal('none');
       setTemplateToAdd(null);
-      loadTemplates(); // Refresh to show the new template
+      loadTemplates();
       Alert.alert('Success', 'Template added to your templates!');
     } catch (error) {
       console.error('Error adding template:', error);
@@ -209,7 +192,11 @@ export default function TemplatesScreen() {
     setTemplateName('');
     setTemplateNotes('');
     setSelectedExercises([]);
-    setCreateModalVisible(true);
+    setTemplateDifficulty('');
+    setTemplateFrequency('');
+    setTemplateTags([]);
+    setCustomFrequency('');
+    setCurrentModal('create');
   };
 
   const handleSaveTemplate = async () => {
@@ -226,10 +213,16 @@ export default function TemplatesScreen() {
     try {
       setLoading(true);
       
+      // Auto-generate tags from exercise muscle groups if none provided
+      const autoTags = templateTags.length === 0 ? getPrimaryMuscleGroups(selectedExercises) : templateTags;
+      
       const { data: template, error: templateError } = await createTemplate({
         user_id: user.id,
         name: templateName.trim(),
         notes: templateNotes.trim() || undefined,
+        difficulty_level: templateDifficulty || 'intermediate',
+        frequency: templateFrequency || 'Custom',
+        tags: autoTags,
       });
 
       if (templateError) throw templateError;
@@ -249,7 +242,7 @@ export default function TemplatesScreen() {
         if (exerciseError) throw exerciseError;
       }
 
-      setCreateModalVisible(false);
+      setCurrentModal('none');
       loadTemplates();
       Alert.alert('Success', 'Template created successfully');
     } catch (error) {
@@ -258,6 +251,23 @@ export default function TemplatesScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getPrimaryMuscleGroups = (exercises: any[]): string[] => {
+    const allGroups = exercises.flatMap(item => 
+      item.exercise.muscle_groups || []
+    );
+    const groupCounts: { [key: string]: number } = {};
+    
+    allGroups.forEach(group => {
+      groupCounts[group] = (groupCounts[group] || 0) + 1;
+    });
+    
+    // Return top 3 most frequent muscle groups
+    return Object.entries(groupCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 3)
+      .map(([group]) => group);
   };
 
   const handleDeleteTemplate = (template: Template) => {
@@ -274,7 +284,7 @@ export default function TemplatesScreen() {
               const { error } = await deleteTemplate(template.id);
               if (error) throw error;
               loadTemplates();
-              setDetailModalVisible(false);
+              setCurrentModal('none');
             } catch (error) {
               console.error('Error deleting template:', error);
               Alert.alert('Error', 'Failed to delete template');
@@ -301,7 +311,7 @@ export default function TemplatesScreen() {
   const handleAddExercise = () => {
     setExerciseSearch('');
     setActiveExerciseFilter('all');
-    setExercisePickerVisible(true);
+    setCurrentModal('exercise');
   };
 
   const handleSelectExercise = (exercise: Exercise) => {
@@ -314,12 +324,11 @@ export default function TemplatesScreen() {
         weight: null,
       },
     ]);
-    setExercisePickerVisible(false);
+    setCurrentModal('create');
   };
 
   const handleCloseExercisePicker = () => {
-    setExercisePickerVisible(false);
-    // Create modal stays open
+    setCurrentModal('create');
   };
 
   const handleRemoveExercise = (index: number) => {
@@ -328,13 +337,12 @@ export default function TemplatesScreen() {
 
   const handleViewDetails = (template: Template) => {
     setSelectedTemplate(template);
-    setDetailModalVisible(true);
+    setCurrentModal('detail');
   };
 
   const handleRecommendedTemplatePress = (template: Template) => {
-    // Show details first, then allow adding to collection
     setSelectedTemplate(template);
-    setDetailModalVisible(true);
+    setCurrentModal('detail');
   };
 
   const toggleSection = (section: 'myTemplates' | 'recommended') => {
@@ -344,38 +352,58 @@ export default function TemplatesScreen() {
     }));
   };
 
-  const filteredExercises = availableExercises.filter((ex) =>
-    ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
-  );
+  const handleTagPress = (tag: string) => {
+    if (templateTags.includes(tag)) {
+      setTemplateTags(templateTags.filter(t => t !== tag));
+    } else if (templateTags.length < 3) {
+      setTemplateTags([...templateTags, tag]);
+    }
+  };
 
   const filteredExercisesWithFilter = availableExercises.filter((ex) => {
-  const matchesSearch = ex.name.toLowerCase().includes(exerciseSearch.toLowerCase());
-  
-  if (activeExerciseFilter === 'all') {
+    const matchesSearch = ex.name.toLowerCase().includes(exerciseSearch.toLowerCase());
+    
+    if (activeExerciseFilter === 'all') {
+      return matchesSearch;
+    }
+    
+    if (['chest', 'back', 'legs', 'shoulders', 'arms', 'core'].includes(activeExerciseFilter)) {
+      return matchesSearch && ex.muscle_groups.includes(activeExerciseFilter);
+    }
+    
+    if (['bodyweight', 'dumbbells', 'barbell'].includes(activeExerciseFilter)) {
+      return matchesSearch && ex.equipment.toLowerCase().includes(activeExerciseFilter.toLowerCase());
+    }
+    
     return matchesSearch;
-  }
-  
-  // Check muscle groups
-  if (['chest', 'back', 'legs', 'shoulders', 'arms', 'core'].includes(activeExerciseFilter)) {
-    return matchesSearch && ex.muscle_groups.includes(activeExerciseFilter);
-  }
-  
-  // Check equipment
-  if (['bodyweight', 'dumbbells', 'barbell'].includes(activeExerciseFilter)) {
-    return matchesSearch && ex.equipment.toLowerCase().includes(activeExerciseFilter.toLowerCase());
-  }
-  
-  return matchesSearch;
-});
+  });
 
-  // Filter templates based on search and active filter
   const filteredTemplates = templates.filter(template => {
     const matchesSearch = template.name.toLowerCase().includes(searchQuery.toLowerCase());
-    // For now, simple filter matching - you can enhance this with actual muscle group matching
     const matchesFilter = activeFilter === 'all' || 
       template.name.toLowerCase().includes(activeFilter.toLowerCase());
     return matchesSearch && matchesFilter;
   });
+
+  const getTemplateBadges = (template: Template) => {
+    const badges = [];
+    
+    if (template.difficulty_level) {
+      badges.push({
+        text: template.difficulty_level.charAt(0).toUpperCase() + template.difficulty_level.slice(1),
+        style: styles.difficultyBadge
+      });
+    }
+    
+    if (template.frequency) {
+      badges.push({
+        text: template.frequency,
+        style: styles.frequencyBadge
+      });
+    }
+
+    return badges;
+  };
 
   const renderTemplateCard = (template: Template, isRecommended = false) => (
     <TouchableOpacity
@@ -404,7 +432,7 @@ export default function TemplatesScreen() {
         </View>
         
         <Text style={styles.cardMetadata}>
-          {template.template_exercises?.length || 0} exercises • {calculateDuration(template.template_exercises?.length || 0)}
+          {template.template_exercises?.length || 0} exercises
         </Text>
 
         {isRecommended && template.description && (
@@ -412,8 +440,16 @@ export default function TemplatesScreen() {
         )}
       </View>
 
+      {/* Badges for both template types */}
+      <View style={styles.badgesContainer}>
+        {getTemplateBadges(template).map((badge, index) => (
+          <View key={index} style={[styles.badgePill, badge.style]}>
+            <Text style={styles.badgePillText}>{badge.text}</Text>
+          </View>
+        ))}
+      </View>
+
       <View style={styles.tagsContainer}>
-        {/* Show tags if available, otherwise fall back to muscle groups */}
         {(template.tags && template.tags.length > 0 
           ? template.tags 
           : getMuscleGroups(template)
@@ -431,11 +467,6 @@ export default function TemplatesScreen() {
 
       {isRecommended && (
         <View style={styles.recommendedBadges}>
-          <View style={styles.subtitleBadge}>
-            <Text style={styles.subtitleText}>
-              {template.frequency} • {template.difficulty_level}
-            </Text>
-          </View>
           {template.badge_type === 'popular' && (
             <View style={[styles.badge, styles.popularBadge]}>
               <Text style={styles.badgeText}>Popular</Text>
@@ -456,48 +487,6 @@ export default function TemplatesScreen() {
     </TouchableOpacity>
   );
 
-  const renderRecommendedCard = (template: any) => (
-    <TouchableOpacity style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardTitle}>{template.name}</Text>
-          <Ionicons name="star-outline" size={20} color="#666" />
-        </View>
-        
-        <Text style={styles.cardMetadata}>
-          {template.exercises} exercises • {template.duration}
-        </Text>
-
-        <Text style={styles.cardDescription}>{template.description}</Text>
-      </View>
-
-      <View style={styles.tagsContainer}>
-        {template.muscleGroups.map((group: string, index: number) => (
-          <View key={index} style={styles.tag}>
-            <Text style={styles.tagText}>{group}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.recommendedBadges}>
-        <View style={styles.subtitleBadge}>
-          <Text style={styles.subtitleText}>{template.subtitle}</Text>
-        </View>
-        {template.isPopular && (
-          <View style={[styles.badge, styles.popularBadge]}>
-            <Text style={styles.badgeText}>Popular</Text>
-          </View>
-        )}
-        {template.isNew && (
-          <View style={[styles.badge, styles.newBadge]}>
-            <Text style={styles.badgeText}>New</Text>
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-
-  // Helper functions
   const calculateDuration = (exerciseCount: number) => {
     const baseTime = 45;
     const additionalTime = Math.floor(exerciseCount * 2.5);
@@ -505,9 +494,9 @@ export default function TemplatesScreen() {
   };
 
   const getMuscleGroups = (template: Template) => {
-    const allGroups = template.template_exercises.flatMap(te => 
-      te.exercises.muscle_groups
-    );
+    const allGroups = template.template_exercises?.flatMap(te => 
+      te.exercises?.muscle_groups || []
+    ) || [];
     return [...new Set(allGroups)];
   };
 
@@ -546,7 +535,7 @@ export default function TemplatesScreen() {
         </View>
       </View>
 
-      {/* Filter Section - Compact */}
+      {/* Filter Section */}
       <View style={styles.filterSection}>
         <ScrollView 
           horizontal 
@@ -654,479 +643,605 @@ export default function TemplatesScreen() {
         </View>
       </ScrollView>
 
-      {/* Add Template Confirmation Modal */}
-      <Modal
-        visible={addTemplateModalVisible}
-        animationType="slide"
-        transparent={true}
+      {/* SINGLE MODAL CONTAINER */}
+      {currentModal !== 'none' && (
+        <Modal
+          visible={true}
+          animationType="slide"
+          transparent={currentModal === 'detail' || currentModal === 'addConfirm'}
+        >
+          {/* Create Template Modal - FIXED */}
+          {currentModal === 'create' && (
+            <View style={styles.modalContainer}>
+              {/* Fixed Header with proper spacing */}
+              <View style={styles.createModalHeader}>
+                <TouchableOpacity 
+                  style={styles.createCloseButton}
+                  onPress={() => setCurrentModal('none')}
+                >
+                  <Text style={styles.createCancelButton}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <Text style={styles.createModalTitle}>New Template</Text>
+                
+                <TouchableOpacity 
+                  style={styles.createSaveButton}
+                  onPress={handleSaveTemplate}
+                >
+                  <Text style={styles.createSaveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalContent}>
+                <Text style={styles.label}>Template Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={templateName}
+                  onChangeText={setTemplateName}
+                  placeholder="e.g., Push Day, Leg Day"
+                  placeholderTextColor="#999"
+                />
+
+                <Text style={styles.label}>Notes (Optional)</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={templateNotes}
+                  onChangeText={setTemplateNotes}
+                  placeholder="Add any notes about this template"
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={3}
+                />
+
+                {/* Template Metadata Section */}
+                <View style={styles.metadataSection}>
+                  <Text style={styles.label}>Template Details</Text>
+                  
+                  {/* Difficulty Level */}
+                  <View style={styles.metadataRow}>
+                    <Text style={styles.metadataLabelSmall}>Difficulty:</Text>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.pillsScrollView}
+                      contentContainerStyle={styles.pillsContentContainer}
+                    >
+                      {DIFFICULTY_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={[
+                            styles.metadataPill,
+                            templateDifficulty === option.id && styles.metadataPillActive
+                          ]}
+                          onPress={() => setTemplateDifficulty(option.id as any)}
+                        >
+                          <Text style={[
+                            styles.metadataPillText,
+                            templateDifficulty === option.id && styles.metadataPillTextActive
+                          ]}>
+                            {option.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  {/* Frequency */}
+                  <View style={styles.metadataRow}>
+                    <Text style={styles.metadataLabelSmall}>Frequency:</Text>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.pillsScrollView}
+                      contentContainerStyle={styles.pillsContentContainer}
+                    >
+                      {FREQUENCY_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={[
+                            styles.metadataPill,
+                            templateFrequency === option.id && styles.metadataPillActive
+                          ]}
+                          onPress={() => setTemplateFrequency(option.id)}
+                        >
+                          <Text style={[
+                            styles.metadataPillText,
+                            templateFrequency === option.id && styles.metadataPillTextActive
+                          ]}>
+                            {option.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  {/* Custom Frequency */}
+                  {templateFrequency === 'Custom' && (
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabelSmall}>Custom:</Text>
+                      <TextInput
+                        style={[styles.input, styles.smallInput]}
+                        value={customFrequency}
+                        onChangeText={setCustomFrequency}
+                        placeholder="e.g., 3 days/week"
+                        placeholderTextColor="#999"
+                      />
+                    </View>
+                  )}
+
+                  {/* Muscle Group Tags - FIXED PILL LAYOUT */}
+<View style={styles.metadataRow}>
+  <Text style={styles.metadataLabelSmall}>Focus: </Text>
+  <View style={styles.tagsContainer}>
+    {['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Full Body', 'Cardio'].map((tag) => (
+      <TouchableOpacity
+        key={tag}
+        style={[
+          styles.tagSelectable,
+          templateTags.includes(tag) && styles.tagSelected
+        ]}
+        onPress={() => handleTagPress(tag)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmationModal}>
-            <Text style={styles.confirmationTitle}>Add Template</Text>
-            <Text style={styles.confirmationText}>
-              Add "{templateToAdd?.name}" to your templates?
-            </Text>
-            <View style={styles.confirmationButtons}>
-              <TouchableOpacity 
-                style={[styles.confirmationButton, styles.cancelButton]}
-                onPress={() => setAddTemplateModalVisible(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.confirmationButton, styles.confirmButton]}
-                onPress={handleConfirmAddTemplate}
-              >
-                <Text style={styles.confirmButtonText}>Add Template</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        <Text style={[
+          styles.tagSelectableText,
+          templateTags.includes(tag) && styles.tagSelectedText
+        ]}>
+          {tag}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+  <Text style={styles.helperText}>
+    Select up to 3 focus areas (auto-detected from exercises if none selected)
+  </Text>
+</View>
+                </View>
 
-      {/* Create Template Modal - Updated with header buffer */}
-      <Modal
-        visible={createModalVisible}
-        animationType="slide"
-      >
-        <View style={styles.modalContainer}>
-          {/* Header Banner with Buffer */}
-          <View style={styles.createModalHeader}>
-            <Text style={styles.createModalTitle}>New Template</Text>
-          </View>
-          
-          {/* Action Buttons positioned absolutely */}
-          <TouchableOpacity 
-            style={styles.createCloseButton}
-            onPress={() => setCreateModalVisible(false)}
-          >
-            <Text style={styles.createCancelButton}>Cancel</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.createSaveButton}
-            onPress={handleSaveTemplate}
-          >
-            <Text style={styles.createSaveButtonText}>Save</Text>
-          </TouchableOpacity>
-
-          <ScrollView style={styles.modalContent}>
-            <Text style={styles.label}>Template Name</Text>
-            <TextInput
-              style={styles.input}
-              value={templateName}
-              onChangeText={setTemplateName}
-              placeholder="e.g., Push Day, Leg Day"
-              placeholderTextColor="#999"
-            />
-
-            <Text style={styles.label}>Notes (Optional)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={templateNotes}
-              onChangeText={setTemplateNotes}
-              placeholder="Add any notes about this template"
-              placeholderTextColor="#999"
-              multiline
-              numberOfLines={3}
-            />
-
-            <View style={styles.exercisesHeader}>
-              <Text style={styles.label}>Exercises</Text>
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={handleAddExercise}
-              >
-                <Ionicons name="add-circle" size={24} color="#007AFF" />
-                <Text style={styles.addButtonText}>Add Exercise</Text>
-              </TouchableOpacity>
-            </View>
-
-            {selectedExercises.map((item, index) => (
-              <View key={index} style={styles.exerciseItem}>
-                <View style={styles.exerciseItemHeader}>
-                  <Text style={styles.exerciseItemName}>{item.exercise.name}</Text>
-                  <TouchableOpacity onPress={() => handleRemoveExercise(index)}>
-                    <Ionicons name="close-circle" size={24} color="#FF3B30" />
+                <View style={styles.exercisesHeader}>
+                  <Text style={styles.label}>Exercises</Text>
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={handleAddExercise}
+                  >
+                    <Ionicons name="add-circle" size={24} color="#007AFF" />
+                    <Text style={styles.addButtonText}>Add Exercise</Text>
                   </TouchableOpacity>
                 </View>
-                <View style={styles.exerciseDefaults}>
-                  <View style={styles.defaultInput}>
-                    <Text style={styles.defaultLabel}>Sets</Text>
-                    <TextInput
-                      style={styles.smallInput}
-                      value={item.sets.toString()}
-                      onChangeText={(text) => {
-                        const updated = [...selectedExercises];
-                        updated[index].sets = parseInt(text) || 1;
-                        setSelectedExercises(updated);
-                      }}
-                      keyboardType="numeric"
-                    />
+
+                {selectedExercises.map((item, index) => (
+                  <View key={index} style={styles.exerciseItem}>
+                    <View style={styles.exerciseItemHeader}>
+                      <Text style={styles.exerciseItemName}>{item.exercise.name}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveExercise(index)}>
+                        <Ionicons name="close-circle" size={24} color="#FF3B30" />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.exerciseDefaults}>
+                      <View style={styles.defaultInput}>
+                        <Text style={styles.defaultLabel}>Sets</Text>
+                        <TextInput
+                          style={styles.smallInput}
+                          value={item.sets.toString()}
+                          onChangeText={(text) => {
+                            const updated = [...selectedExercises];
+                            updated[index].sets = parseInt(text) || 1;
+                            setSelectedExercises(updated);
+                          }}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={styles.defaultInput}>
+                        <Text style={styles.defaultLabel}>Reps</Text>
+                        <TextInput
+                          style={styles.smallInput}
+                          value={item.reps?.toString() || ''}
+                          onChangeText={(text) => {
+                            const updated = [...selectedExercises];
+                            updated[index].reps = text ? parseInt(text) : null;
+                            setSelectedExercises(updated);
+                          }}
+                          keyboardType="numeric"
+                          placeholder="--"
+                          placeholderTextColor="#999"
+                        />
+                      </View>
+                      <View style={styles.defaultInput}>
+                        <Text style={styles.defaultLabel}>Weight (kg)</Text>
+                        <TextInput
+                          style={styles.smallInput}
+                          value={item.weight?.toString() || ''}
+                          onChangeText={(text) => {
+                            const updated = [...selectedExercises];
+                            updated[index].weight = text ? parseFloat(text) : null;
+                            setSelectedExercises(updated);
+                          }}
+                          keyboardType="numeric"
+                          placeholder="--"
+                          placeholderTextColor="#999"
+                        />
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.defaultInput}>
-                    <Text style={styles.defaultLabel}>Reps</Text>
-                    <TextInput
-                      style={styles.smallInput}
-                      value={item.reps?.toString() || ''}
-                      onChangeText={(text) => {
-                        const updated = [...selectedExercises];
-                        updated[index].reps = text ? parseInt(text) : null;
-                        setSelectedExercises(updated);
-                      }}
-                      keyboardType="numeric"
-                      placeholder="--"
-                      placeholderTextColor="#999"
-                    />
-                  </View>
-                  <View style={styles.defaultInput}>
-                    <Text style={styles.defaultLabel}>Weight (kg)</Text>
-                    <TextInput
-                      style={styles.smallInput}
-                      value={item.weight?.toString() || ''}
-                      onChangeText={(text) => {
-                        const updated = [...selectedExercises];
-                        updated[index].weight = text ? parseFloat(text) : null;
-                        setSelectedExercises(updated);
-                      }}
-                      keyboardType="numeric"
-                      placeholder="--"
-                      placeholderTextColor="#999"
-                    />
-                  </View>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
-
-      {/* Exercise Picker Modal - Updated with seamless transition */}
-      <Modal
-        visible={exercisePickerVisible}
-        animationType="slide"
-        transparent={true}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.exerciseModalContainer}>
-            {/* Header Banner */}
-            <View style={styles.exerciseModalHeader}>
-              <Text style={styles.exerciseModalTitle}>Select Exercise</Text>
-            </View>
-            
-            {/* Close Button - Updated handler */}
-            <TouchableOpacity 
-              style={styles.exerciseCloseButton}
-              onPress={handleCloseExercisePicker}
-            >
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search exercises..."
-                placeholderTextColor="#999"
-                value={exerciseSearch}
-                onChangeText={setExerciseSearch}
-              />
-            </View>
-
-            {/* Filter Pills (keep the same as before) */}
-            <View style={styles.exerciseFilterSection}>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.exerciseFilterContent}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'all' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('all')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'all' && styles.exerciseFilterTextActive
-                  ]}>
-                    All
-                  </Text>
-                </TouchableOpacity>
-                
-                {/* Muscle Group Filters */}
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'chest' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('chest')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'chest' && styles.exerciseFilterTextActive
-                  ]}>
-                    Chest
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'back' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('back')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'back' && styles.exerciseFilterTextActive
-                  ]}>
-                    Back
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'legs' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('legs')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'legs' && styles.exerciseFilterTextActive
-                  ]}>
-                    Legs
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'shoulders' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('shoulders')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'shoulders' && styles.exerciseFilterTextActive
-                  ]}>
-                    Shoulders
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'arms' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('arms')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'arms' && styles.exerciseFilterTextActive
-                  ]}>
-                    Arms
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'core' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('core')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'core' && styles.exerciseFilterTextActive
-                  ]}>
-                    Core
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Equipment Filters */}
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'bodyweight' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('bodyweight')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'bodyweight' && styles.exerciseFilterTextActive
-                  ]}>
-                    Bodyweight
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'dumbbells' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('dumbbells')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'dumbbells' && styles.exerciseFilterTextActive
-                  ]}>
-                    Dumbbells
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.exerciseFilterPill,
-                    activeExerciseFilter === 'barbell' && styles.exerciseFilterPillActive
-                  ]}
-                  onPress={() => setActiveExerciseFilter('barbell')}
-                >
-                  <Text style={[
-                    styles.exerciseFilterText,
-                    activeExerciseFilter === 'barbell' && styles.exerciseFilterTextActive
-                  ]}>
-                    Barbell
-                  </Text>
-                </TouchableOpacity>
+                ))}
               </ScrollView>
             </View>
+          )}
 
-            {/* Exercise List */}
-            <FlatList
-              data={filteredExercisesWithFilter}
-              keyExtractor={(item) => item.id}
-              style={styles.exerciseList}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.exerciseOption}
-                  onPress={() => handleSelectExercise(item)}
+          {/* Exercise Picker Modal */}
+          {currentModal === 'exercise' && (
+            <View style={styles.modalOverlay}>
+              <View style={styles.exerciseModalContainer}>
+                <View style={styles.exerciseModalHeader}>
+                  <Text style={styles.exerciseModalTitle}>Select Exercise</Text>
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.exerciseCloseButton}
+                  onPress={handleCloseExercisePicker}
                 >
-                  <Text style={styles.exerciseOptionName}>{item.name}</Text>
-                  <Text style={styles.exerciseOptionDetails}>
-                    {item.muscle_groups.join(', ')} • {item.equipment}
-                  </Text>
+                  <Ionicons name="close" size={24} color="#333" />
                 </TouchableOpacity>
-              )}
-              showsVerticalScrollIndicator={false}
-            />
-          </View>
-        </View>
-      </Modal>
 
-      {/* Template Detail Modal - Updated to smaller pop-up style */}
-      <Modal
-        visible={detailModalVisible}
-        animationType="slide"
-        transparent={true}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.detailModalContainer}>
-            {/* Header Banner with Buffer */}
-            <View style={styles.detailModalHeader}>
-              <Text style={styles.detailModalTitle}>Template Details</Text>
+                <View style={styles.searchContainer}>
+                  <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search exercises..."
+                    placeholderTextColor="#999"
+                    value={exerciseSearch}
+                    onChangeText={setExerciseSearch}
+                  />
+                </View>
+
+                <View style={styles.exerciseFilterSection}>
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.exerciseFilterContent}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'all' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('all')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'all' && styles.exerciseFilterTextActive
+                      ]}>
+                        All
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'chest' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('chest')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'chest' && styles.exerciseFilterTextActive
+                      ]}>
+                        Chest
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'back' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('back')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'back' && styles.exerciseFilterTextActive
+                      ]}>
+                        Back
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'legs' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('legs')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'legs' && styles.exerciseFilterTextActive
+                      ]}>
+                        Legs
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'shoulders' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('shoulders')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'shoulders' && styles.exerciseFilterTextActive
+                      ]}>
+                        Shoulders
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'arms' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('arms')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'arms' && styles.exerciseFilterTextActive
+                      ]}>
+                        Arms
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'core' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('core')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'core' && styles.exerciseFilterTextActive
+                      ]}>
+                        Core
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'bodyweight' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('bodyweight')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'bodyweight' && styles.exerciseFilterTextActive
+                      ]}>
+                        Bodyweight
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'dumbbells' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('dumbbells')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'dumbbells' && styles.exerciseFilterTextActive
+                      ]}>
+                        Dumbbells
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.exerciseFilterPill,
+                        activeExerciseFilter === 'barbell' && styles.exerciseFilterPillActive
+                      ]}
+                      onPress={() => setActiveExerciseFilter('barbell')}
+                    >
+                      <Text style={[
+                        styles.exerciseFilterText,
+                        activeExerciseFilter === 'barbell' && styles.exerciseFilterTextActive
+                      ]}>
+                        Barbell
+                      </Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+
+                <FlatList
+                  data={filteredExercisesWithFilter}
+                  keyExtractor={(item) => item.id}
+                  style={styles.exerciseList}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.exerciseOption}
+                      onPress={() => handleSelectExercise(item)}
+                    >
+                      <Text style={styles.exerciseOptionName}>{item.name}</Text>
+                      <Text style={styles.exerciseOptionDetails}>
+                        {item.muscle_groups.join(', ')} • {item.equipment}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  showsVerticalScrollIndicator={false}
+                />
+              </View>
             </View>
-            
-            {/* Close Button positioned absolutely */}
-            <TouchableOpacity 
-              style={styles.detailCloseButton}
-              onPress={() => setDetailModalVisible(false)}
-            >
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
+          )}
 
-            {/* Action Button (Add/Delete) positioned absolutely */}
-            {selectedTemplate?.is_recommended ? (
-              <TouchableOpacity
-                style={styles.detailActionButton}
-                onPress={() => {
-                  setDetailModalVisible(false);
-                  handleAddRecommendedTemplate(selectedTemplate);
-                }}
-              >
-                <Text style={styles.detailActionButtonText}>Add</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={styles.detailDeleteButton}
-                onPress={() => selectedTemplate && handleDeleteTemplate(selectedTemplate)}
-              >
-                <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-              </TouchableOpacity>
-            )}
+          {/* Template Detail Modal - CONSISTENT POPUP SIZE FOR ALL TEMPLATES */}
+          {currentModal === 'detail' && selectedTemplate && (
+            <View style={styles.modalOverlay}>
+              <View style={styles.detailModalContainer}>
+                {/* Fixed Header */}
+                <View style={styles.detailModalHeader}>
+                  <TouchableOpacity 
+                    style={styles.detailCloseButton}
+                    onPress={() => setCurrentModal('none')}
+                  >
+                    <Ionicons name="close" size={24} color="#333" />
+                  </TouchableOpacity>
 
-            {selectedTemplate ? (
-              <ScrollView style={styles.detailModalContent} showsVerticalScrollIndicator={false}>
-                <Text style={styles.detailTitle}>{selectedTemplate.name}</Text>
-                
-                {selectedTemplate.description && (
-                  <Text style={styles.detailDescription}>{selectedTemplate.description}</Text>
-                )}
-                
-                {selectedTemplate.notes ? (
-                  <Text style={styles.detailNotes}>{selectedTemplate.notes}</Text>
-                ) : null}
+                  <Text style={styles.detailModalTitle}>Template Details</Text>
 
-                {/* Template metadata for recommended templates */}
-                {selectedTemplate.is_recommended && (
+                  {selectedTemplate.is_recommended ? (
+                    <TouchableOpacity
+                      style={styles.detailActionButton}
+                      onPress={() => {
+                        setCurrentModal('none');
+                        handleAddRecommendedTemplate(selectedTemplate);
+                      }}
+                    >
+                      <Text style={styles.detailActionButtonText}>Add</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.detailDeleteButton}
+                      onPress={() => selectedTemplate && handleDeleteTemplate(selectedTemplate)}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Content */}
+                <ScrollView 
+                  style={styles.detailModalContent}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.detailModalContentContainer}
+                >
+                  <Text style={styles.detailTitle}>{selectedTemplate.name}</Text>
+                  
+                  {selectedTemplate.description && (
+                    <Text style={styles.detailDescription}>{selectedTemplate.description}</Text>
+                  )}
+                  
+                  {selectedTemplate.notes ? (
+                    <View style={styles.notesSection}>
+                      <Text style={styles.notesLabel}>Notes:</Text>
+                      <Text style={styles.detailNotes}>{selectedTemplate.notes}</Text>
+                    </View>
+                  ) : null}
+
+                  {/* Metadata Section */}
                   <View style={styles.detailMetadata}>
                     <View style={styles.metadataRow}>
                       <Text style={styles.metadataLabel}>Difficulty:</Text>
-                      <Text style={styles.metadataValue}>{selectedTemplate.difficulty_level}</Text>
+                      <Text style={styles.metadataValue}>
+                        {selectedTemplate.difficulty_level ? 
+                          selectedTemplate.difficulty_level.charAt(0).toUpperCase() + selectedTemplate.difficulty_level.slice(1) 
+                          : 'Not specified'
+                        }
+                      </Text>
                     </View>
+                    
                     <View style={styles.metadataRow}>
                       <Text style={styles.metadataLabel}>Frequency:</Text>
-                      <Text style={styles.metadataValue}>{selectedTemplate.frequency}</Text>
+                      <Text style={styles.metadataValue}>
+                        {selectedTemplate.frequency || 'Not specified'}
+                      </Text>
                     </View>
-                    {selectedTemplate.tags && selectedTemplate.tags.length > 0 && (
-                      <View style={styles.metadataRow}>
-                        <Text style={styles.metadataLabel}>Focus:</Text>
-                        <View style={styles.tagsContainer}>
-                          {selectedTemplate.tags.map((tag, index) => (
-                            <View key={index} style={styles.tag}>
-                              <Text style={styles.tagText}>{tag}</Text>
-                            </View>
-                          ))}
-                        </View>
+                    
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabel}>Duration:</Text>
+                      <Text style={styles.metadataValue}>
+                        {calculateDuration(selectedTemplate.template_exercises?.length || 0)}
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.metadataRow}>
+                      <Text style={styles.metadataLabel}>Focus:</Text>
+                      <View style={styles.tagsContainer}>
+                        {(selectedTemplate.tags && selectedTemplate.tags.length > 0 
+                          ? selectedTemplate.tags 
+                          : getMuscleGroups(selectedTemplate)
+                        ).slice(0, 5).map((tag, index) => (
+                          <View key={index} style={styles.tag}>
+                            <Text style={styles.tagText}>{tag}</Text>
+                          </View>
+                        ))}
+                        {((selectedTemplate.tags && selectedTemplate.tags.length > 5) || 
+                          (!selectedTemplate.tags && getMuscleGroups(selectedTemplate).length > 5)) && (
+                          <View style={styles.tag}>
+                            <Text style={styles.tagText}>
+                              +{((selectedTemplate.tags?.length || getMuscleGroups(selectedTemplate).length) - 5)}
+                            </Text>
+                          </View>
+                        )}
                       </View>
-                    )}
+                    </View>
                   </View>
-                )}
 
-                <Text style={styles.detailSectionTitle}>Exercises</Text>
-                {selectedTemplate.template_exercises.map((te) => (
-                  <View key={te.id} style={styles.detailExercise}>
-                    <Text style={styles.detailExerciseName}>{te.exercises.name}</Text>
-                    <Text style={styles.detailExerciseInfo}>
-                      {te.default_sets} sets
-                      {te.default_reps ? ` × ${te.default_reps} reps` : ''}
-                      {te.default_weight ? ` @ ${te.default_weight} kg` : ''}
-                    </Text>
-                    <Text style={styles.detailExerciseEquipment}>
-                      {te.exercises.equipment} • {te.exercises.muscle_groups.join(', ')}
-                    </Text>
-                  </View>
-                ))}
+                  <Text style={styles.detailSectionTitle}>
+                    Exercises ({selectedTemplate.template_exercises?.length || 0})
+                  </Text>
+                  
+                  {selectedTemplate.template_exercises && selectedTemplate.template_exercises.length > 0 ? (
+                    selectedTemplate.template_exercises.map((te) => (
+                      <View key={te.id} style={styles.detailExercise}>
+                        <Text style={styles.detailExerciseName}>{te.exercises?.name || 'Unknown Exercise'}</Text>
+                        <Text style={styles.detailExerciseInfo}>
+                          {te.default_sets || 3} sets
+                          {te.default_reps ? ` × ${te.default_reps} reps` : ''}
+                          {te.default_weight ? ` @ ${te.default_weight} kg` : ''}
+                        </Text>
+                        {te.exercises && (
+                          <Text style={styles.detailExerciseEquipment}>
+                            {te.exercises.equipment} • {te.exercises.muscle_groups?.join(', ') || 'Various muscles'}
+                          </Text>
+                        )}
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noExercisesText}>No exercises in this template</Text>
+                  )}
 
-                {selectedTemplate.is_recommended && (
+                  {selectedTemplate.is_recommended && (
+                    <TouchableOpacity 
+                      style={styles.addTemplateButton}
+                      onPress={() => {
+                        setCurrentModal('none');
+                        handleAddRecommendedTemplate(selectedTemplate);
+                      }}
+                    >
+                      <Text style={styles.addTemplateButtonText}>Add to My Templates</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+          )}
+
+          {/* Add Template Confirmation Modal */}
+          {currentModal === 'addConfirm' && (
+            <View style={styles.modalOverlay}>
+              <View style={styles.confirmationModal}>
+                <Text style={styles.confirmationTitle}>Add Template</Text>
+                <Text style={styles.confirmationText}>
+                  Add "{templateToAdd?.name}" to your templates?
+                </Text>
+                <View style={styles.confirmationButtons}>
                   <TouchableOpacity 
-                    style={styles.addTemplateButton}
-                    onPress={() => {
-                      setDetailModalVisible(false);
-                      handleAddRecommendedTemplate(selectedTemplate);
-                    }}
+                    style={[styles.confirmationButton, styles.cancelButton]}
+                    onPress={() => setCurrentModal('none')}
                   >
-                    <Text style={styles.addTemplateButtonText}>Add to My Templates</Text>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
                   </TouchableOpacity>
-                )}
-              </ScrollView>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
+                  <TouchableOpacity 
+                    style={[styles.confirmationButton, styles.confirmButton]}
+                    onPress={handleConfirmAddTemplate}
+                  >
+                    <Text style={styles.confirmButtonText}>Add Template</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+        </Modal>
+      )}
     </View>
   );
 }
@@ -1189,20 +1304,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-  // Filter Section - Compact
+  // Filter Section
   filterSection: {
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    maxHeight: 52, // Reduced height
+    maxHeight: 52,
   },
   filterContent: {
     paddingHorizontal: 16,
-    paddingVertical: 8, // Reduced padding
+    paddingVertical: 8,
   },
   filterPill: {
     paddingHorizontal: 16,
-    paddingVertical: 6, // Reduced padding
+    paddingVertical: 6,
     borderRadius: 16,
     backgroundColor: '#f5f5f5',
     marginRight: 8,
@@ -1275,18 +1390,41 @@ const styles = StyleSheet.create({
   cardMetadata: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   cardDescription: {
     fontSize: 14,
     color: '#666',
     lineHeight: 18,
   },
-  tagsContainer: {
+  // Badges and Tags
+  badgesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: 8,
   },
+  badgePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  difficultyBadge: {
+    backgroundColor: '#e3f2fd',
+  },
+  frequencyBadge: {
+    backgroundColor: '#f3e5f5',
+  },
+  badgePillText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  tagsContainer: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  marginBottom: 8,
+},
   tag: {
     backgroundColor: '#f0f0f0',
     paddingHorizontal: 8,
@@ -1305,18 +1443,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
   },
-  subtitleBadge: {
-    backgroundColor: '#e3f2fd',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  subtitleText: {
-    fontSize: 12,
-    color: '#007AFF',
-    fontWeight: '500',
-  },
   badge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -1328,6 +1454,9 @@ const styles = StyleSheet.create({
   },
   newBadge: {
     backgroundColor: '#d4edda',
+  },
+  featuredBadge: {
+    backgroundColor: '#e3f2fd',
   },
   badgeText: {
     fontSize: 10,
@@ -1355,24 +1484,53 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'white',
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  saveButton: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '600',
-  },
+  // Create Template Modal Styles
+  createModalHeader: {
+  backgroundColor: 'white',
+  paddingTop: 60, // Proper iPhone header spacing
+  paddingBottom: 16,
+  paddingHorizontal: 16,
+  borderBottomWidth: 1,
+  borderBottomColor: '#e0e0e0',
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  minHeight: 80,
+},
+  createModalTitle: {
+  fontSize: 18, // Slightly smaller for better balance
+  fontWeight: '700',
+  color: '#333',
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  textAlign: 'center',
+  top: 60, // Align with the header content
+},
+  createCloseButton: {
+  padding: 8,
+  zIndex: 2,
+},
+createCancelButton: {
+  fontSize: 16,
+  color: '#007AFF',
+  fontWeight: '600', // Made consistent with Save button
+},
+createSaveButton: {
+  padding: 8,
+  zIndex: 2,
+},
+  createSaveButtonText: {
+  fontSize: 16,
+  color: '#007AFF',
+  fontWeight: '600',
+},
   modalContent: {
     flex: 1,
     padding: 16,
@@ -1395,6 +1553,96 @@ const styles = StyleSheet.create({
   textArea: {
     height: 80,
     textAlignVertical: 'top',
+  },
+  // Metadata Section in Create Template
+  metadataSection: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  metadataLabelSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  pillsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  pillsScrollView: {
+  flex: 1,
+  maxHeight: 40, // Control height
+},
+pillsContentContainer: {
+  paddingRight: 16, // Extra padding to prevent cut-off
+},
+tagsScrollView: {
+  flex: 1,
+  maxHeight: 40, // Control height
+},
+tagsContentContainer: {
+  paddingRight: 16, // Extra padding to prevent cut-off
+  flexDirection: 'row',
+  flexWrap: 'nowrap', // Keep in single row
+},
+  metadataPill: {
+  paddingHorizontal: 16,
+  paddingVertical: 8,
+  borderRadius: 16,
+  backgroundColor: '#f5f5f5',
+  marginRight: 8,
+  marginBottom: 6,
+  minWidth: 100, // Consistent minimum width
+  alignItems: 'center',
+},
+  metadataPillActive: {
+  backgroundColor: '#007AFF',
+},
+  metadataPillText: {
+  fontSize: 14,
+  color: '#666',
+  fontWeight: '500',
+},
+  metadataPillTextActive: {
+  color: 'white',
+},
+  tagsSelectionContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  tagSelectable: {
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  borderRadius: 16,
+  backgroundColor: '#f5f5f5',
+  marginRight: 8,
+  marginBottom: 8,
+  borderWidth: 1,
+  borderColor: '#e0e0e0',
+},
+  tagSelected: {
+  backgroundColor: '#007AFF',
+  borderColor: '#007AFF',
+},
+tagSelectableText: {
+  fontSize: 14,
+  color: '#666',
+  fontWeight: '500',
+},
+tagSelectedText: {
+  color: 'white',
+},
+  helperText: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  smallInput: {
+    flex: 1,
+    height: 40,
   },
   exercisesHeader: {
     flexDirection: 'row',
@@ -1443,14 +1691,73 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
-  smallInput: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 16,
+  // Exercise Picker Modal Styles
+  exerciseModalContainer: {
     backgroundColor: 'white',
-    textAlign: 'center',
+    borderRadius: 16,
+    margin: 20,
+    marginTop: 80,
+    marginBottom: 40,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  exerciseModalHeader: {
+    backgroundColor: '#f8f8f8',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    paddingTop: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    alignItems: 'center',
+  },
+  exerciseModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  exerciseCloseButton: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    zIndex: 1,
+    padding: 4,
+  },
+  exerciseFilterSection: {
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    maxHeight: 52,
+  },
+  exerciseFilterContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  exerciseFilterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    marginRight: 8,
+  },
+  exerciseFilterPillActive: {
+    backgroundColor: '#007AFF',
+  },
+  exerciseFilterText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  exerciseFilterTextActive: {
+    color: 'white',
+  },
+  exerciseList: {
+    flex: 1,
+    paddingHorizontal: 16,
   },
   exerciseOption: {
     padding: 16,
@@ -1468,11 +1775,79 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   // Detail Modal Styles
+  detailModalContainer: {
+  backgroundColor: 'white',
+  borderRadius: 16,
+  margin: 16, // Smaller margins for more height
+  marginTop: 30,
+  marginBottom: 16,
+  width: '90%',
+  maxWidth: 400,
+  maxHeight: '90%', // Increased to 90% of screen height
+  minHeight: '75%', // Increased minimum height
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 12,
+  elevation: 8,
+  alignSelf: 'center',
+},
+  detailModalHeader: {
+  backgroundColor: '#f8f8f8',
+  borderTopLeftRadius: 16,
+  borderTopRightRadius: 16,
+  padding: 16,
+  paddingTop: 16,
+  borderBottomWidth: 1,
+  borderBottomColor: '#e0e0e0',
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  minHeight: 60,
+},
+detailModalTitle: {
+  fontSize: 18,
+  fontWeight: '600',
+  color: '#333',
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  textAlign: 'center',
+  zIndex: 1,
+},
+detailCloseButton: {
+  padding: 4,
+  zIndex: 2,
+},
+  detailActionButton: {
+  backgroundColor: '#007AFF',
+  paddingHorizontal: 16,
+  paddingVertical: 8,
+  borderRadius: 8,
+  zIndex: 2,
+},
+detailActionButtonText: {
+  color: 'white',
+  fontWeight: '600',
+  fontSize: 14,
+},
+detailDeleteButton: {
+  padding: 4,
+  zIndex: 2,
+},
+detailModalContent: {
+  flex: 1,
+},
+detailModalContentContainer: {
+  padding: 16,
+  paddingBottom: 24,
+},
   detailTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: '#333',
     marginBottom: 8,
+    textAlign: 'center',
   },
   detailDescription: {
     fontSize: 16,
@@ -1480,16 +1855,26 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
+  notesSection: {
+    marginBottom: 16,
+  },
+  notesLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
   detailNotes: {
     fontSize: 16,
     color: '#666',
-    marginBottom: 24,
   },
   detailMetadata: {
     backgroundColor: '#f9f9f9',
     borderRadius: 8,
     padding: 16,
     marginBottom: 24,
+    marginTop: 8,
+    width: '100%',
   },
   metadataRow: {
     flexDirection: 'row',
@@ -1501,11 +1886,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     width: 80,
+    flexShrink: 0,
   },
   metadataValue: {
     fontSize: 14,
     color: '#666',
     flex: 1,
+    flexWrap: 'wrap',
   },
   detailSectionTitle: {
     fontSize: 18,
@@ -1518,6 +1905,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
+    width: '100%',
   },
   detailExerciseName: {
     fontSize: 16,
@@ -1534,6 +1922,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
   },
+  noExercisesText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
   addTemplateButton: {
     backgroundColor: '#007AFF',
     padding: 16,
@@ -1547,12 +1942,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // Confirmation Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   confirmationModal: {
     backgroundColor: 'white',
     borderRadius: 12,
@@ -1576,195 +1965,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   confirmationButton: {
-  flex: 1,
-  paddingVertical: 12,
-  borderRadius: 8,
-  alignItems: 'center',
-  marginHorizontal: 6,
-},
-cancelButton: {
-  backgroundColor: '#f5f5f5',
-},
-confirmButton: {
-  backgroundColor: '#007AFF',
-},
-cancelButtonText: {
-  color: '#666',
-  fontWeight: '600',
-},
-confirmButtonText: {
-  color: 'white',
-  fontWeight: '600',
-},
-  featuredBadge: {
-    backgroundColor: '#e3f2fd',
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 6,
   },
-detailModalContainer: {
-  backgroundColor: 'white',
-  borderRadius: 16,
-  margin: 20,
-  marginTop: 80, // Provides buffer from top
-  marginBottom: 40,
-  maxHeight: '80%', // Limits height to 80% of screen
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.3,
-  shadowRadius: 12,
-  elevation: 8,
-},
-detailModalHeader: {
-  backgroundColor: '#f8f8f8',
-  borderTopLeftRadius: 16,
-  borderTopRightRadius: 16,
-  padding: 16,
-  paddingTop: 20,
-  borderBottomWidth: 1,
-  borderBottomColor: '#e0e0e0',
-  alignItems: 'center',
-},
-detailModalTitle: {
-  fontSize: 18,
-  fontWeight: '600',
-  color: '#333',
-},
-detailCloseButton: {
-  position: 'absolute',
-  top: 16,
-  left: 16,
-  zIndex: 1,
-  padding: 4,
-},
-detailActionButton: {
-  position: 'absolute',
-  top: 16,
-  right: 16,
-  zIndex: 1,
-  backgroundColor: '#007AFF',
-  paddingHorizontal: 16,
-  paddingVertical: 6,
-  borderRadius: 8,
-},
-detailActionButtonText: {
-  color: 'white',
-  fontWeight: '600',
-  fontSize: 14,
-},
-detailDeleteButton: {
-  position: 'absolute',
-  top: 16,
-  right: 16,
-  zIndex: 1,
-  padding: 4,
-},
-detailModalContent: {
-  padding: 16,
-  maxHeight: '100%',
-},
-// Add these styles to your existing StyleSheet
-createModalHeader: {
-  backgroundColor: 'white',
-  paddingTop: 60, // Provides buffer for iPhone status bar
-  paddingBottom: 16,
-  paddingHorizontal: 16,
-  borderBottomWidth: 1,
-  borderBottomColor: '#e0e0e0',
-},
-createModalTitle: {
-  fontSize: 20,
-  fontWeight: '700',
-  color: '#333',
-  textAlign: 'center',
-},
-createCloseButton: {
-  position: 'absolute',
-  top: 60, // Matches the header paddingTop
-  left: 16,
-  zIndex: 1,
-  padding: 8,
-},
-createCancelButton: {
-  fontSize: 16,
-  color: '#007AFF',
-  fontWeight: '500',
-},
-createSaveButton: {
-  position: 'absolute',
-  top: 60, // Matches the header paddingTop
-  right: 16,
-  zIndex: 1,
-  padding: 8,
-},
-createSaveButtonText: {
-  fontSize: 16,
-  color: '#007AFF',
-  fontWeight: '600',
-},
-// Exercise Picker Modal Styles
-exerciseModalContainer: {
-  backgroundColor: 'white',
-  borderRadius: 16,
-  margin: 20,
-  marginTop: 80,
-  marginBottom: 40,
-  maxHeight: '80%',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.3,
-  shadowRadius: 12,
-  elevation: 8,
-},
-exerciseModalHeader: {
-  backgroundColor: '#f8f8f8',
-  borderTopLeftRadius: 16,
-  borderTopRightRadius: 16,
-  padding: 16,
-  paddingTop: 20,
-  borderBottomWidth: 1,
-  borderBottomColor: '#e0e0e0',
-  alignItems: 'center',
-},
-exerciseModalTitle: {
-  fontSize: 18,
-  fontWeight: '600',
-  color: '#333',
-},
-exerciseCloseButton: {
-  position: 'absolute',
-  top: 16,
-  left: 16,
-  zIndex: 1,
-  padding: 4,
-},
-exerciseFilterSection: {
-  backgroundColor: 'white',
-  borderBottomWidth: 1,
-  borderBottomColor: '#e0e0e0',
-  maxHeight: 52,
-},
-exerciseFilterContent: {
-  paddingHorizontal: 16,
-  paddingVertical: 8,
-},
-exerciseFilterPill: {
-  paddingHorizontal: 16,
-  paddingVertical: 6,
-  borderRadius: 16,
-  backgroundColor: '#f5f5f5',
-  marginRight: 8,
-},
-exerciseFilterPillActive: {
-  backgroundColor: '#007AFF',
-},
-exerciseFilterText: {
-  fontSize: 14,
-  color: '#666',
-  fontWeight: '500',
-},
-exerciseFilterTextActive: {
-  color: 'white',
-},
-exerciseList: {
-  flex: 1,
-  paddingHorizontal: 16,
-},
+  cancelButton: {
+    backgroundColor: '#f5f5f5',
+  },
+  confirmButton: {
+    backgroundColor: '#007AFF',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
 });
