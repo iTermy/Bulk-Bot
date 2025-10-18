@@ -10,6 +10,8 @@ import {
   Modal,
   FlatList,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../lib/AuthContext'
@@ -32,6 +34,7 @@ export default function WorkoutScreen() {
   const [workoutExercises, setWorkoutExercises] = useState<WorkoutExercise[]>([])
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [exerciseModalVisible, setExerciseModalVisible] = useState(false)
+  const [saveModalVisible, setSaveModalVisible] = useState(false)
   const [loading, setLoading] = useState(false)
   const [exercisesLoaded, setExercisesLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -39,6 +42,7 @@ export default function WorkoutScreen() {
   const [timerActive, setTimerActive] = useState(false)
   const [currentSetId, setCurrentSetId] = useState<string | null>(null)
   const [workoutName, setWorkoutName] = useState('')
+  const [tempWorkoutName, setTempWorkoutName] = useState('')
   const [startTime, setStartTime] = useState<Date | null>(null)
 
   // Load exercises when modal opens
@@ -100,7 +104,9 @@ export default function WorkoutScreen() {
   const startWorkout = () => {
     setWorkoutStarted(true)
     setStartTime(new Date())
-    setWorkoutName(`Workout ${new Date().toLocaleDateString()}`)
+    const defaultName = `Workout ${new Date().toLocaleDateString()}`
+    setWorkoutName(defaultName)
+    setTempWorkoutName(defaultName)
   }
 
   const addExerciseToWorkout = (exercise: Exercise) => {
@@ -182,19 +188,47 @@ export default function WorkoutScreen() {
     })
   }
 
-  const saveWorkout = async () => {
+  const handleSaveClick = () => {
     if (!user || workoutExercises.length === 0) {
       Alert.alert('Error', 'Cannot save empty workout')
       return
     }
 
+    // Check if any sets are completed
+    const hasCompletedSets = workoutExercises.some(we => 
+      we.sets.some(set => set.completed)
+    )
+
+    if (!hasCompletedSets) {
+      Alert.alert('Error', 'Please complete at least one set before saving')
+      return
+    }
+
+    // Open save modal
+    setTempWorkoutName(workoutName)
+    setSaveModalVisible(true)
+  }
+
+  const saveWorkout = async () => {
+    if (!user || workoutExercises.length === 0) {
+      return
+    }
+
+    // Validate workout name
+    if (!tempWorkoutName.trim()) {
+      Alert.alert('Error', 'Please enter a workout name')
+      return
+    }
+
     setSaving(true)
+    setSaveModalVisible(false)
+
     try {
       const duration = startTime ? Math.round((new Date().getTime() - startTime.getTime()) / 60000) : undefined
 
       const { data: workout, error: workoutError } = await createWorkout({
         user_id: user.id,
-        name: workoutName,
+        name: tempWorkoutName.trim(),
         date: new Date().toISOString().split('T')[0],
         duration_minutes: duration,
       })
@@ -259,6 +293,7 @@ export default function WorkoutScreen() {
     setWorkoutStarted(false)
     setWorkoutExercises([])
     setWorkoutName('')
+    setTempWorkoutName('')
     setStartTime(null)
     setTimer(0)
     setTimerActive(false)
@@ -275,6 +310,16 @@ export default function WorkoutScreen() {
     setTimerActive(false)
     setTimer(0)
     setCurrentSetId(null)
+  }
+
+  const getWorkoutSummary = () => {
+    const totalSets = workoutExercises.reduce((acc, we) => 
+      acc + we.sets.filter(s => s.completed).length, 0
+    )
+    const totalExercises = workoutExercises.length
+    const duration = startTime ? Math.round((new Date().getTime() - startTime.getTime()) / 60000) : 0
+
+    return { totalSets, totalExercises, duration }
   }
 
   if (!workoutStarted) {
@@ -306,26 +351,20 @@ export default function WorkoutScreen() {
         </View>
         
         <View style={styles.headerCenter}>
-          <TextInput
-            style={styles.workoutNameInput}
-            value={workoutName}
-            onChangeText={setWorkoutName}
-            placeholder="Workout Name"
-            textAlign="center"
-          />
-          {timerActive && (
+          <Text style={styles.workoutNameDisplay}>{workoutName}</Text>
+          {timerActive ? (
             <View style={styles.timerContainer}>
               <Text style={styles.timerText}>{formatTimer(timer)}</Text>
               <TouchableOpacity onPress={stopTimer} style={styles.stopTimerButton}>
                 <Ionicons name="stop-circle" size={20} color="#FF3B30" />
               </TouchableOpacity>
             </View>
-          )}
+          ) : null}
         </View>
         
         <View style={styles.headerRight}>
           <TouchableOpacity 
-            onPress={saveWorkout} 
+            onPress={handleSaveClick} 
             disabled={saving || workoutExercises.length === 0}
             style={[
               styles.saveButton, 
@@ -397,14 +436,14 @@ export default function WorkoutScreen() {
                     </View>
                   )}
                   
-                  {workoutExercise.sets.length > 1 && (
+                  {workoutExercise.sets.length > 1 ? (
                     <TouchableOpacity 
                       onPress={() => removeSet(exerciseIndex, setIndex)}
                       style={styles.removeSetButton}
                     >
                       <Ionicons name="remove-circle-outline" size={16} color="#FF3B30" />
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
               </View>
             ))}
@@ -428,6 +467,7 @@ export default function WorkoutScreen() {
         </TouchableOpacity>
       </ScrollView>
 
+      {/* Exercise Selection Modal */}
       <Modal
         visible={exerciseModalVisible}
         animationType="slide"
@@ -480,6 +520,81 @@ export default function WorkoutScreen() {
           )}
         </View>
       </Modal>
+
+      {/* Save Workout Modal */}
+      <Modal
+        visible={saveModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setSaveModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.saveModalOverlay}
+        >
+          <TouchableOpacity 
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setSaveModalVisible(false)}
+          />
+          <View style={styles.saveModalContent}>
+            <View style={styles.saveModalHeader}>
+              <Ionicons name="save-outline" size={32} color="#007AFF" />
+              <Text style={styles.saveModalTitle}>Save Workout</Text>
+            </View>
+
+            <View style={styles.workoutSummary}>
+              <View style={styles.summaryRow}>
+                <Ionicons name="fitness" size={20} color="#666" />
+                <Text style={styles.summaryText}>
+                  {getWorkoutSummary().totalExercises} exercise{getWorkoutSummary().totalExercises !== 1 ? 's' : ''}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+                <Text style={styles.summaryText}>
+                  {getWorkoutSummary().totalSets} set{getWorkoutSummary().totalSets !== 1 ? 's' : ''} completed
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Ionicons name="time" size={20} color="#666" />
+                <Text style={styles.summaryText}>
+                  {getWorkoutSummary().duration} minute{getWorkoutSummary().duration !== 1 ? 's' : ''}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.nameInputContainer}>
+              <Text style={styles.nameInputLabel}>Workout Name</Text>
+              <TextInput
+                style={styles.nameInput}
+                value={tempWorkoutName}
+                onChangeText={setTempWorkoutName}
+                placeholder="Enter workout name"
+                placeholderTextColor="#999"
+                autoFocus={true}
+                selectTextOnFocus={true}
+              />
+            </View>
+
+            <View style={styles.saveModalButtons}>
+              <TouchableOpacity 
+                style={styles.modalCancelButton}
+                onPress={() => setSaveModalVisible(false)}
+              >
+                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.modalSaveButton}
+                onPress={saveWorkout}
+                disabled={!tempWorkoutName.trim()}
+              >
+                <Text style={styles.modalSaveButtonText}>Save Workout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   )
 }
@@ -507,7 +622,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerRight: {
-    width: 60,
+    width: 70,
     alignItems: 'flex-end',
   },
   title: {
@@ -516,12 +631,11 @@ const styles = StyleSheet.create({
     color: '#333',
     textAlign: 'center',
   },
-  workoutNameInput: {
+  workoutNameDisplay: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    textAlign: 'center',
   },
   timerContainer: {
     flexDirection: 'row',
@@ -548,6 +662,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     minWidth: 60,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   saveButtonDisabled: {
     backgroundColor: '#ccc',
@@ -556,6 +671,7 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 14,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -762,5 +878,98 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 2,
+  },
+  saveModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  saveModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  saveModalHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  saveModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 12,
+  },
+  workoutSummary: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  summaryText: {
+    fontSize: 16,
+    color: '#333',
+    marginLeft: 12,
+  },
+  nameInputContainer: {
+    marginBottom: 24,
+  },
+  nameInputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  nameInput: {
+    borderWidth: 1,
+    borderColor: '#e1e1e1',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#333',
+    backgroundColor: 'white',
+  },
+  saveModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalCancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalSaveButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalSaveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 })
