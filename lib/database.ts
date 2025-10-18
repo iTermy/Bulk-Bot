@@ -145,9 +145,10 @@ export const getRecommendedTemplates = async () => {
 };
 
 // Copy a recommended template to user's templates
+// Enhanced copyTemplateToUser function - add this to database.ts
 export const copyTemplateToUser = async (templateId: string, userId: string, newName?: string) => {
-  // First get the template with all its exercises
-  const { data: originalTemplate, error: fetchError } = await supabase
+  // First get the template with all its data
+  const { data: sourceTemplate, error: templateError } = await supabase
     .from('workout_templates')
     .select(`
       *,
@@ -156,36 +157,43 @@ export const copyTemplateToUser = async (templateId: string, userId: string, new
     .eq('id', templateId)
     .single();
 
-  if (fetchError) return { data: null, error: fetchError };
+  if (templateError) throw templateError;
+  if (!sourceTemplate) throw new Error('Template not found');
 
-  // Create a new template for the user
-  const { data: newTemplate, error: templateError } = await createTemplate({
-    user_id: userId,
-    name: newName || `${originalTemplate.name} (Copy)`,
-    notes: originalTemplate.notes,
-    is_favorite: false,
-  });
+  // Create the new template with all metadata
+  const { data: newTemplate, error: createError } = await supabase
+    .from('workout_templates')
+    .insert({
+      user_id: userId,
+      name: newName || sourceTemplate.name,
+      notes: sourceTemplate.notes,
+      difficulty_level: sourceTemplate.difficulty_level,
+      frequency: sourceTemplate.frequency,
+      description: sourceTemplate.description,
+      tags: sourceTemplate.tags,
+    })
+    .select()
+    .single();
 
-  if (templateError) return { data: null, error: templateError };
+  if (createError) throw createError;
+  if (!newTemplate) throw new Error('Failed to create template copy');
 
   // Copy all template exercises
-  if (originalTemplate.template_exercises && newTemplate) {
-    for (const exercise of originalTemplate.template_exercises) {
-      const { error: exerciseError } = await createTemplateExercise({
-        template_id: newTemplate.id,
-        exercise_id: exercise.exercise_id,
-        order_index: exercise.order_index,
-        default_sets: exercise.default_sets,
-        default_reps: exercise.default_reps,
-        default_weight: exercise.default_weight,
-      });
-      
-      if (exerciseError) {
-        // If any exercise fails, delete the template and return error
-        await deleteTemplate(newTemplate.id);
-        return { data: null, error: exerciseError };
-      }
-    }
+  if (sourceTemplate.template_exercises && sourceTemplate.template_exercises.length > 0) {
+    const { error: exercisesError } = await supabase
+      .from('template_exercises')
+      .insert(
+        sourceTemplate.template_exercises.map((te: any) => ({
+          template_id: newTemplate.id,
+          exercise_id: te.exercise_id,
+          order_index: te.order_index,
+          default_sets: te.default_sets,
+          default_reps: te.default_reps,
+          default_weight: te.default_weight,
+        }))
+      );
+
+    if (exercisesError) throw exercisesError;
   }
 
   return { data: newTemplate, error: null };
