@@ -46,6 +46,8 @@ type WorkoutWithSets = Workout & {
   exerciseCount?: number;
 };
 
+type SearchFilter = 'all' | 'name' | 'date' | 'exercise';
+
 export default function HistoryScreen() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -56,7 +58,9 @@ export default function HistoryScreen() {
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutWithSets | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showFilterOptions, setShowFilterOptions] = useState(false);
+  const [showSearchFilterModal, setShowSearchFilterModal] = useState(false);
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'week' | 'month' | 'year'>('all');
+  const [searchFilter, setSearchFilter] = useState<SearchFilter>('all');
 
   useEffect(() => {
     if (user) {
@@ -66,13 +70,12 @@ export default function HistoryScreen() {
 
   useEffect(() => {
     filterWorkouts();
-  }, [searchQuery, workouts, filterPeriod]);
+  }, [searchQuery, workouts, filterPeriod, searchFilter]);
 
   const fetchWorkouts = async () => {
     try {
       setLoading(true);
       
-      // Fetch workouts with sets
       const { data: workoutsData, error: workoutsError } = await supabase
         .from('workouts')
         .select(`
@@ -87,28 +90,23 @@ export default function HistoryScreen() {
 
       if (workoutsError) throw workoutsError;
 
-      // Fetch all exercises separately
       const { data: exercisesData, error: exercisesError } = await supabase
         .from('exercises')
         .select('*');
 
       if (exercisesError) throw exercisesError;
 
-      // Create a map of exercises for quick lookup
       const exercisesMap = new Map();
       exercisesData?.forEach(exercise => {
         exercisesMap.set(exercise.id, exercise);
       });
 
-      // Process workouts to add calculated fields and exercise data
       const processedWorkouts = workoutsData?.map(workout => {
-        // Add exercise data to each set
         const setsWithExercises = workout.sets?.map((set: any) => ({
           ...set,
           exercise: exercisesMap.get(set.exercise_id) || { name: 'Unknown Exercise', muscle_groups: [] }
         }));
 
-        // Count unique exercises
         const uniqueExercises = new Set(setsWithExercises?.map((set: any) => set.exercise_id));
         
         return {
@@ -158,24 +156,45 @@ export default function HistoryScreen() {
       );
     }
 
-    // Apply search filter
+    // Apply search filter based on selected search type
     if (searchQuery) {
       filtered = filtered.filter(workout => {
         const searchLower = searchQuery.toLowerCase();
         
-        // Search in workout name
-        if (workout.name?.toLowerCase().includes(searchLower)) return true;
-        
-        // Search in exercise names
-        const hasMatchingExercise = workout.sets?.some(set => 
-          set.exercise?.name.toLowerCase().includes(searchLower)
-        );
-        if (hasMatchingExercise) return true;
-        
-        // Search in notes
-        if (workout.notes?.toLowerCase().includes(searchLower)) return true;
-        
-        return false;
+        switch (searchFilter) {
+          case 'name':
+            // Search only in workout name
+            return workout.name?.toLowerCase().includes(searchLower);
+            
+          case 'date':
+            // Search in formatted date
+            const formattedDate = formatDate(workout.date).toLowerCase();
+            const rawDate = workout.date.toLowerCase();
+            return formattedDate.includes(searchLower) || rawDate.includes(searchLower);
+            
+          case 'exercise':
+            // Search only in exercise names
+            return workout.sets?.some(set => 
+              set.exercise?.name.toLowerCase().includes(searchLower)
+            );
+            
+          case 'all':
+          default:
+            // Search everywhere
+            if (workout.name?.toLowerCase().includes(searchLower)) return true;
+            
+            const hasMatchingExercise = workout.sets?.some(set => 
+              set.exercise?.name.toLowerCase().includes(searchLower)
+            );
+            if (hasMatchingExercise) return true;
+            
+            if (workout.notes?.toLowerCase().includes(searchLower)) return true;
+            
+            const dateMatch = formatDate(workout.date).toLowerCase().includes(searchLower);
+            if (dateMatch) return true;
+            
+            return false;
+        }
       });
     }
 
@@ -193,7 +212,6 @@ export default function HistoryScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Delete sets first (due to foreign key constraint)
               const { error: setsError } = await supabase
                 .from('sets')
                 .delete()
@@ -201,7 +219,6 @@ export default function HistoryScreen() {
 
               if (setsError) throw setsError;
 
-              // Then delete the workout
               const { error: workoutError } = await supabase
                 .from('workouts')
                 .delete()
@@ -209,7 +226,6 @@ export default function HistoryScreen() {
 
               if (workoutError) throw workoutError;
 
-              // Update local state
               setWorkouts(prev => prev.filter(w => w.id !== workoutId));
               setShowDetailModal(false);
               Alert.alert('Success', 'Workout deleted successfully');
@@ -224,14 +240,11 @@ export default function HistoryScreen() {
   };
 
   const formatDate = (dateString: string) => {
-    // Handle the date string properly regardless of timezone
     let date: Date;
     
     if (dateString.includes('T')) {
-      // ISO string with time - parse it
       date = new Date(dateString);
     } else {
-      // Just a date string, parse as local date
       const [year, month, day] = dateString.split('-').map(Number);
       date = new Date(year, month - 1, day);
     }
@@ -281,6 +294,34 @@ export default function HistoryScreen() {
     return grouped;
   };
 
+  const getSearchFilterLabel = () => {
+    switch (searchFilter) {
+      case 'name':
+        return 'Workout Name';
+      case 'date':
+        return 'Date';
+      case 'exercise':
+        return 'Exercise';
+      case 'all':
+      default:
+        return 'All';
+    }
+  };
+
+  const getSearchPlaceholder = () => {
+    switch (searchFilter) {
+      case 'name':
+        return 'Search by workout name...';
+      case 'date':
+        return 'Search by date (e.g., Jan 15, 2025)...';
+      case 'exercise':
+        return 'Search by exercise name...';
+      case 'all':
+      default:
+        return 'Search workouts, exercises, or dates...';
+    }
+  };
+
   const renderWorkoutItem = ({ item }: { item: WorkoutWithSets }) => (
     <TouchableOpacity
       style={styles.workoutCard}
@@ -308,20 +349,20 @@ export default function HistoryScreen() {
         </View>
       </View>
 
-      {item.sets && item.sets.length > 0 && (
+      {item.sets && item.sets.length > 0 ? (
         <View style={styles.exercisePreview}>
           {Object.keys(groupSetsByExercise(item.sets)).slice(0, 3).map((exerciseName, index) => (
             <Text key={index} style={styles.exercisePreviewText}>
               • {exerciseName}
             </Text>
           ))}
-          {Object.keys(groupSetsByExercise(item.sets)).length > 3 && (
+          {Object.keys(groupSetsByExercise(item.sets)).length > 3 ? (
             <Text style={styles.exercisePreviewText}>
               + {Object.keys(groupSetsByExercise(item.sets)).length - 3} more
             </Text>
-          )}
+          ) : null}
         </View>
-      )}
+      ) : null}
     </TouchableOpacity>
   );
 
@@ -367,7 +408,6 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>History</Text>
         <TouchableOpacity
@@ -382,20 +422,34 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search workouts, exercises, or notes..."
+          placeholder={getSearchPlaceholder()}
           value={searchQuery}
           onChangeText={setSearchQuery}
           clearButtonMode="while-editing"
         />
+        <TouchableOpacity 
+          onPress={() => setShowSearchFilterModal(true)}
+          style={styles.searchFilterButton}
+        >
+          <Text style={[
+            styles.searchFilterText,
+            searchFilter !== 'all' && styles.searchFilterTextActive
+          ]}>
+            {getSearchFilterLabel()}
+          </Text>
+          <Ionicons 
+            name="chevron-down" 
+            size={16} 
+            color={searchFilter !== 'all' ? '#007AFF' : '#999'} 
+          />
+        </TouchableOpacity>
       </View>
 
-      {/* Filter Options */}
-      {showFilterOptions && (
+      {showFilterOptions ? (
         <View style={styles.filterContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {['all', 'week', 'month', 'year'].map(period => (
@@ -417,12 +471,10 @@ export default function HistoryScreen() {
             ))}
           </ScrollView>
         </View>
-      )}
+      ) : null}
 
-      {/* Stats Summary */}
       {renderStats()}
 
-      {/* Workout List */}
       <FlatList
         data={filteredWorkouts}
         renderItem={renderWorkoutItem}
@@ -433,6 +485,65 @@ export default function HistoryScreen() {
         }
         ListEmptyComponent={renderEmptyState}
       />
+
+      {/* Search Filter Modal */}
+      <Modal
+        visible={showSearchFilterModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSearchFilterModal(false)}
+      >
+        <TouchableOpacity 
+          style={styles.searchFilterModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSearchFilterModal(false)}
+        >
+          <View style={styles.searchFilterModalContent}>
+            <View style={styles.searchFilterModalHeader}>
+              <Text style={styles.searchFilterModalTitle}>Search By</Text>
+            </View>
+            
+            {[
+              { value: 'all', label: 'All', icon: 'search', description: 'Search everything' },
+              { value: 'name', label: 'Workout Name', icon: 'text', description: 'Search by workout name only' },
+              { value: 'date', label: 'Date', icon: 'calendar', description: 'Search by date' },
+              { value: 'exercise', label: 'Exercise', icon: 'barbell', description: 'Search by exercise name' },
+            ].map((filter) => (
+              <TouchableOpacity
+                key={filter.value}
+                style={[
+                  styles.searchFilterOption,
+                  searchFilter === filter.value && styles.searchFilterOptionActive
+                ]}
+                onPress={() => {
+                  setSearchFilter(filter.value as SearchFilter);
+                  setShowSearchFilterModal(false);
+                }}
+              >
+                <Ionicons 
+                  name={filter.icon as any} 
+                  size={24} 
+                  color={searchFilter === filter.value ? '#007AFF' : '#666'} 
+                />
+                <View style={styles.searchFilterOptionText}>
+                  <Text style={[
+                    styles.searchFilterOptionLabel,
+                    searchFilter === filter.value && styles.searchFilterOptionLabelActive
+                  ]}>
+                    {filter.label}
+                  </Text>
+                  <Text style={styles.searchFilterOptionDescription}>
+                    {filter.description}
+                  </Text>
+                </View>
+                {searchFilter === filter.value ? (
+                  <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Workout Detail Modal */}
       <Modal
@@ -453,7 +564,7 @@ export default function HistoryScreen() {
           </View>
 
           <ScrollView style={styles.modalContent}>
-            {selectedWorkout && (
+            {selectedWorkout ? (
               <>
                 <View style={styles.detailSection}>
                   <Text style={styles.detailTitle}>
@@ -464,10 +575,8 @@ export default function HistoryScreen() {
                       let date: Date;
                       
                       if (selectedWorkout.date.includes('T')) {
-                        // ISO string with time
                         date = new Date(selectedWorkout.date);
                       } else {
-                        // Just a date string, parse as local
                         const [year, month, day] = selectedWorkout.date.split('-').map(Number);
                         date = new Date(year, month - 1, day);
                       }
@@ -497,12 +606,12 @@ export default function HistoryScreen() {
                   </View>
                 </View>
 
-                {selectedWorkout.notes && (
+                {selectedWorkout.notes ? (
                   <View style={styles.detailSection}>
                     <Text style={styles.sectionTitle}>Notes</Text>
                     <Text style={styles.notesText}>{selectedWorkout.notes}</Text>
                   </View>
-                )}
+                ) : null}
 
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionTitle}>Exercises</Text>
@@ -510,7 +619,7 @@ export default function HistoryScreen() {
                     <View key={exerciseName} style={styles.exerciseDetail}>
                       <Text style={styles.exerciseName}>{exerciseName}</Text>
                       <View style={styles.setsContainer}>
-                        {sets.sort((a, b) => a.set_number - b.set_number).map((set, index) => (
+                        {sets.sort((a, b) => a.set_number - b.set_number).map((set) => (
                           <View key={set.id} style={styles.setDetail}>
                             <Text style={styles.setNumber}>Set {set.set_number}</Text>
                             <Text style={styles.setInfo}>
@@ -523,7 +632,7 @@ export default function HistoryScreen() {
                   ))}
                 </View>
               </>
-            )}
+            ) : null}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -575,6 +684,23 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
+  },
+  searchFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+    borderLeftWidth: 1,
+    borderLeftColor: '#e0e0e0',
+    marginLeft: 8,
+  },
+  searchFilterText: {
+    fontSize: 14,
+    color: '#999',
+    marginRight: 4,
+  },
+  searchFilterTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
   filterContainer: {
     backgroundColor: 'white',
@@ -701,6 +827,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
+  },
+  searchFilterModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  searchFilterModalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+  },
+  searchFilterModalHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    alignItems: 'center',
+  },
+  searchFilterModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  searchFilterOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  searchFilterOptionActive: {
+    backgroundColor: '#f0f8ff',
+  },
+  searchFilterOptionText: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  searchFilterOptionLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 4,
+  },
+  searchFilterOptionLabelActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  searchFilterOptionDescription: {
+    fontSize: 14,
+    color: '#666',
   },
   modalContainer: {
     flex: 1,

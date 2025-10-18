@@ -75,7 +75,7 @@ export default function HomeScreen() {
   const [selectedExercises, setSelectedExercises] = useState<string[]>([])
   const [selectedWorkoutDays, setSelectedWorkoutDays] = useState<number[]>([])
   const [currentStreak, setCurrentStreak] = useState(0)
-  const [streakBadge, setStreakBadge] = useState<string>('🔥')
+  const [streakBadge, setStreakBadge] = useState<string>('🐭')
 
   useEffect(() => {
     if (user) {
@@ -152,12 +152,10 @@ export default function HomeScreen() {
       return
     }
 
-    // Sort workouts by date (most recent first)
     const sortedWorkouts = [...workouts].sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
     )
 
-    // Get dates of workouts (normalize to start of day)
     const workoutDates = new Set(
       sortedWorkouts.map(w => {
         const date = new Date(w.date)
@@ -170,30 +168,24 @@ export default function HomeScreen() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     
-    // Start checking from most recent scheduled workout day
     let checkDate = new Date(today)
     
-    // If today is a scheduled workout day and no workout logged, streak is broken
     if (selectedWorkoutDays.includes(today.getDay()) && !workoutDates.has(today.getTime())) {
       setCurrentStreak(0)
       return
     }
 
-    // Check backwards through scheduled workout days
     while (true) {
-      // Find the previous scheduled workout day
       let foundScheduledDay = false
-      for (let i = 0; i < 14; i++) { // Check up to 2 weeks back
+      for (let i = 0; i < 14; i++) {
         checkDate.setDate(checkDate.getDate() - 1)
         
         if (selectedWorkoutDays.includes(checkDate.getDay())) {
           foundScheduledDay = true
           
-          // Check if there's a workout on this scheduled day
           if (workoutDates.has(checkDate.getTime())) {
             streak++
           } else {
-            // Missed a scheduled workout day - streak broken
             setCurrentStreak(streak)
             updateStreakBadge(streak)
             return
@@ -203,7 +195,6 @@ export default function HomeScreen() {
       }
       
       if (!foundScheduledDay) {
-        // No more scheduled days found in reasonable range
         break
       }
     }
@@ -215,21 +206,31 @@ export default function HomeScreen() {
   const updateStreakBadge = (streak: number) => {
     const months = Math.floor(streak / 30)
     if (months >= 12) {
-      setStreakBadge('👑') // 1 year+
+      setStreakBadge('🐲')
+    } else if (months >= 11) {
+      setStreakBadge('🐻‍❄️')
+    } else if (months >= 10) {
+      setStreakBadge('🐼')
+    } else if (months >= 9) {
+      setStreakBadge('🐻')
+    } else if (months >= 8) {
+      setStreakBadge('🐮')
+    } else if (months >= 7) {
+      setStreakBadge('🐷')
     } else if (months >= 6) {
-      setStreakBadge('💎') // 6 months
+      setStreakBadge('🐵')
+    } else if (months >= 5) {
+      setStreakBadge('🐶')
+    } else if (months >= 4) {
+      setStreakBadge('🐱')
     } else if (months >= 3) {
-      setStreakBadge('⭐') // 3 months
+      setStreakBadge('🐸')
     } else if (months >= 2) {
-      setStreakBadge('🏆') // 2 months
+      setStreakBadge('🐹')
     } else if (months >= 1) {
-      setStreakBadge('🥇') // 1 month
-    } else if (streak >= 14) {
-      setStreakBadge('🔥') // 2 weeks
-    } else if (streak >= 7) {
-      setStreakBadge('💪') // 1 week
+      setStreakBadge('🐭')
     } else {
-      setStreakBadge('🔥') // Default
+      setStreakBadge('🐭')
     }
   }
 
@@ -462,26 +463,35 @@ export default function HomeScreen() {
   const getStreakMessage = () => {
     const months = Math.floor(currentStreak / 30)
     if (months >= 12) return 'Legendary! 1 Year+'
-    if (months >= 6) return 'Diamond! 6 Months'
-    if (months >= 3) return 'Superstar! 3 Months'
-    if (months >= 2) return 'Champion! 2 Months'
-    if (months >= 1) return 'Gold! 1 Month'
-    if (currentStreak >= 14) return 'On Fire! 2 Weeks'
-    if (currentStreak >= 7) return 'Strong! 1 Week'
+    if (months >= 11) return 'Arctic Bear! 11 Months'
+    if (months >= 10) return 'Panda! 10 Months'
+    if (months >= 9) return 'Bear! 9 Months'
+    if (months >= 8) return 'Cow! 8 Months'
+    if (months >= 7) return 'Pig! 7 Months'
+    if (months >= 6) return 'Monkey! 6 Months'
+    if (months >= 5) return 'Dog! 5 Months'
+    if (months >= 4) return 'Cat! 4 Months'
+    if (months >= 3) return 'Frog! 3 Months'
+    if (months >= 2) return 'Hamster! 2 Months'
+    if (months >= 1) return 'Mouse! 1 Month'
     if (currentStreak > 0) return `Keep going!`
     return 'Start your streak!'
   }
 
   const getStreakBadges = () => {
     return [
-      { emoji: '🔥', name: 'Starter', days: 0, description: 'Begin your journey' },
-      { emoji: '💪', name: 'Strong', days: 7, description: '1 week streak' },
-      { emoji: '🔥', name: 'On Fire', days: 14, description: '2 weeks streak' },
-      { emoji: '🥇', name: 'Gold', days: 30, description: '1 month streak' },
-      { emoji: '🏆', name: 'Champion', days: 60, description: '2 months streak' },
-      { emoji: '⭐', name: 'Superstar', days: 90, description: '3 months streak' },
-      { emoji: '💎', name: 'Diamond', days: 180, description: '6 months streak' },
-      { emoji: '👑', name: 'Legendary', days: 360, description: '1 year+ streak' },
+      { emoji: '🐭', name: 'Mouse', days: 30, description: '1 month streak' },
+      { emoji: '🐹', name: 'Hamster', days: 60, description: '2 months streak' },
+      { emoji: '🐸', name: 'Frog', days: 90, description: '3 months streak' },
+      { emoji: '🐱', name: 'Cat', days: 120, description: '4 months streak' },
+      { emoji: '🐶', name: 'Dog', days: 150, description: '5 months streak' },
+      { emoji: '🐵', name: 'Monkey', days: 180, description: '6 months streak' },
+      { emoji: '🐷', name: 'Pig', days: 210, description: '7 months streak' },
+      { emoji: '🐮', name: 'Cow', days: 240, description: '8 months streak' },
+      { emoji: '🐻', name: 'Bear', days: 270, description: '9 months streak' },
+      { emoji: '🐼', name: 'Panda', days: 300, description: '10 months streak' },
+      { emoji: '🐻‍❄️', name: 'Arctic Bear', days: 330, description: '11 months streak' },
+      { emoji: '🐲', name: 'Dragon', days: 360, description: '1 year+ streak' },
     ]
   }
 
@@ -492,9 +502,8 @@ export default function HomeScreen() {
         return i
       }
     }
-    return 0
+    return -1
   }
-
   const renderPRList = () => {
     if (personalRecords.length === 0) {
       return (
@@ -592,11 +601,11 @@ export default function HomeScreen() {
                   <Text style={styles.exerciseMuscles}>
                     {item.muscle_groups?.join(', ') || 'No muscle groups'}
                   </Text>
-                  {pr && (
+                  {pr ? (
                     <Text style={styles.currentPR}>
                       Current PR: {pr.weight} lbs × {pr.reps} reps
                     </Text>
-                  )}
+                  ) : null}
                 </View>
                 <View style={styles.exerciseSelection}>
                   {isSelected ? (
@@ -678,9 +687,9 @@ export default function HomeScreen() {
                   {day}
                 </Text>
                 <View style={styles.dayCheckbox}>
-                  {isSelected && (
+                  {isSelected ? (
                     <Ionicons name="checkmark" size={20} color="#007AFF" />
-                  )}
+                  ) : null}
                 </View>
               </TouchableOpacity>
             )
@@ -763,16 +772,16 @@ export default function HomeScreen() {
                       ]}>
                         {badge.name}
                       </Text>
-                      {isCurrent && (
+                      {isCurrent ? (
                         <View style={styles.currentBadge}>
                           <Text style={styles.currentBadgeText}>CURRENT</Text>
                         </View>
-                      )}
-                      {!isUnlocked && index === currentBadgeIndex + 1 && (
+                      ) : null}
+                      {!isUnlocked && index === currentBadgeIndex + 1 ? (
                         <View style={styles.nextBadge}>
                           <Text style={styles.nextBadgeText}>NEXT</Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
                     <Text style={[
                       styles.badgeDescription,
@@ -786,16 +795,16 @@ export default function HomeScreen() {
                     ]}>
                       {badge.days === 0 ? 'Starting point' : `${badge.days} day${badge.days !== 1 ? 's' : ''}`}
                     </Text>
-                    {!isUnlocked && daysUntilUnlock > 0 && (
+                    {!isUnlocked && daysUntilUnlock > 0 ? (
                       <Text style={styles.daysRemaining}>
                         {daysUntilUnlock} day{daysUntilUnlock !== 1 ? 's' : ''} to unlock
                       </Text>
-                    )}
+                    ) : null}
                   </View>
 
-                  {isUnlocked && (
+                  {isUnlocked ? (
                     <Ionicons name="checkmark-circle" size={28} color="#34C759" />
-                  )}
+                  ) : null}
                 </View>
               )
             })}
@@ -822,7 +831,6 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Streak Card */}
       <View style={styles.streakSection}>
         <TouchableOpacity 
           style={styles.streakCard}
@@ -847,7 +855,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
         
-        {selectedWorkoutDays.length > 0 && (
+        {selectedWorkoutDays.length > 0 ? (
           <View style={styles.scheduledDays}>
             <Text style={styles.scheduledDaysLabel}>Workout Days:</Text>
             <View style={styles.daysRow}>
@@ -869,7 +877,7 @@ export default function HomeScreen() {
               ))}
             </View>
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.statsContainer}>
@@ -927,11 +935,11 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent Workouts</Text>
-          {workouts.length > 0 && (
+          {workouts.length > 0 ? (
             <TouchableOpacity onPress={navigateToHistoryTab}>
               <Text style={styles.viewAllText}>View All</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
         
         {loading ? (
@@ -956,11 +964,11 @@ export default function HomeScreen() {
                 <Text style={styles.workoutDate}>{formatDate(workout.date)}</Text>
               </View>
               <View style={styles.workoutStats}>
-                {workout.duration_minutes && (
+                {workout.duration_minutes ? (
                   <Text style={styles.workoutDuration}>
                     {workout.duration_minutes} min
                   </Text>
-                )}
+                ) : null}
                 <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
               </View>
             </TouchableOpacity>
