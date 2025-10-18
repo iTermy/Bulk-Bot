@@ -13,6 +13,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Dimensions,
 } from 'react-native';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -46,7 +47,9 @@ type WorkoutWithSets = Workout & {
   exerciseCount?: number;
 };
 
-type SearchFilter = 'all' | 'name' | 'date' | 'exercise';
+type SearchFilter = 'all' | 'name' | 'exercise';
+
+const { height: screenHeight } = Dimensions.get('window');
 
 export default function HistoryScreen() {
   const { user } = useAuth();
@@ -61,6 +64,9 @@ export default function HistoryScreen() {
   const [showSearchFilterModal, setShowSearchFilterModal] = useState(false);
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'week' | 'month' | 'year'>('all');
   const [searchFilter, setSearchFilter] = useState<SearchFilter>('all');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   useEffect(() => {
     if (user) {
@@ -70,7 +76,7 @@ export default function HistoryScreen() {
 
   useEffect(() => {
     filterWorkouts();
-  }, [searchQuery, workouts, filterPeriod, searchFilter]);
+  }, [searchQuery, workouts, filterPeriod, searchFilter, selectedDate]);
 
   const fetchWorkouts = async () => {
     try {
@@ -131,11 +137,53 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
+  // FIXED: Improved date comparison function that properly handles timezones
+  const isSameDay = (date1: Date, date2: Date): boolean => {
+    // Convert both dates to YYYY-MM-DD format for accurate comparison
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    
+    // Use UTC methods to avoid timezone issues
+    return d1.getUTCFullYear() === d2.getUTCFullYear() &&
+           d1.getUTCMonth() === d2.getUTCMonth() &&
+           d1.getUTCDate() === d2.getUTCDate();
+  };
+
+  // NEW: Helper function to normalize dates for comparison
+  const normalizeDate = (dateString: string): Date => {
+    if (dateString.includes('T')) {
+      // For ISO strings, parse and use UTC components
+      const date = new Date(dateString);
+      return new Date(Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate()
+      ));
+    } else {
+      // For date-only strings like "2025-10-11"
+      const [year, month, day] = dateString.split('-').map(Number);
+      return new Date(Date.UTC(year, month - 1, day));
+    }
+  };
+
   const filterWorkouts = () => {
     let filtered = [...workouts];
 
-    // Apply time period filter
-    if (filterPeriod !== 'all') {
+    // Apply date filter first (highest priority) - FIXED TIMEZONE ISSUE
+    if (selectedDate) {
+      filtered = filtered.filter(workout => {
+        const workoutDate = normalizeDate(workout.date);
+        const selectedDateUTC = new Date(Date.UTC(
+          selectedDate.getFullYear(),
+          selectedDate.getMonth(),
+          selectedDate.getDate()
+        ));
+        return isSameDay(workoutDate, selectedDateUTC);
+      });
+    }
+
+    // Apply time period filter (only if no date is selected)
+    else if (filterPeriod !== 'all') {
       const now = new Date();
       const cutoffDate = new Date();
       
@@ -156,7 +204,7 @@ export default function HistoryScreen() {
       );
     }
 
-    // Apply search filter based on selected search type
+    // Apply search filter
     if (searchQuery) {
       filtered = filtered.filter(workout => {
         const searchLower = searchQuery.toLowerCase();
@@ -165,12 +213,6 @@ export default function HistoryScreen() {
           case 'name':
             // Search only in workout name
             return workout.name?.toLowerCase().includes(searchLower);
-            
-          case 'date':
-            // Search in formatted date
-            const formattedDate = formatDate(workout.date).toLowerCase();
-            const rawDate = workout.date.toLowerCase();
-            return formattedDate.includes(searchLower) || rawDate.includes(searchLower);
             
           case 'exercise':
             // Search only in exercise names
@@ -298,8 +340,6 @@ export default function HistoryScreen() {
     switch (searchFilter) {
       case 'name':
         return 'Workout Name';
-      case 'date':
-        return 'Date';
       case 'exercise':
         return 'Exercise';
       case 'all':
@@ -312,13 +352,116 @@ export default function HistoryScreen() {
     switch (searchFilter) {
       case 'name':
         return 'Search by workout name...';
-      case 'date':
-        return 'Search by date (e.g., Jan 15, 2025)...';
       case 'exercise':
         return 'Search by exercise name...';
       case 'all':
       default:
-        return 'Search workouts, exercises, or dates...';
+        return 'Search workouts or exercises...';
+    }
+  };
+
+  const formatDateForDisplay = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const handleDateSelect = (date: Date) => {
+    setSelectedDate(date);
+    // Auto-collapse calendar after selecting a date for better UX
+    setTimeout(() => setShowCalendar(false), 300);
+  };
+
+  const clearDateFilter = () => {
+    setSelectedDate(null);
+  };
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    const newMonth = new Date(currentMonth);
+    if (direction === 'prev') {
+      newMonth.setMonth(newMonth.getMonth() - 1);
+    } else {
+      newMonth.setMonth(newMonth.getMonth() + 1);
+    }
+    setCurrentMonth(newMonth);
+  };
+
+  const getDaysInMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const renderCalendarDays = () => {
+    const days = [];
+    const daysInMonth = getDaysInMonth(currentMonth);
+    const firstDay = getFirstDayOfMonth(currentMonth);
+    
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<View key={`empty-${i}`} style={styles.calendarDayEmpty} />);
+    }
+    
+    // Add cells for each day of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+      
+      // FIXED: Use the improved date comparison logic for calendar dots
+      const hasWorkout = workouts.some(workout => {
+        const workoutDate = normalizeDate(workout.date);
+        const calendarDateUTC = new Date(Date.UTC(
+          date.getFullYear(),
+          date.getMonth(),
+          date.getDate()
+        ));
+        return isSameDay(workoutDate, calendarDateUTC);
+      });
+      
+      const isSelected = selectedDate && isSameDay(
+        new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())),
+        new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()))
+      );
+      const isToday = isSameDay(
+        new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())),
+        new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()))
+      );
+      
+      days.push(
+        <TouchableOpacity
+          key={day}
+          style={[
+            styles.calendarDay,
+            hasWorkout && styles.calendarDayWithWorkout,
+            isSelected && styles.calendarDaySelected,
+            isToday && styles.calendarDayToday
+          ]}
+          onPress={() => handleDateSelect(date)}
+        >
+          <Text style={[
+            styles.calendarDayText,
+            hasWorkout && styles.calendarDayTextWithWorkout,
+            isSelected && styles.calendarDayTextSelected,
+            isToday && styles.calendarDayTextToday
+          ]}>
+            {day}
+          </Text>
+          {hasWorkout && <View style={styles.workoutDot} />}
+        </TouchableOpacity>
+      );
+    }
+    
+    return days;
+  };
+
+  const toggleCalendar = () => {
+    setShowCalendar(!showCalendar);
+    if (!showCalendar) {
+      setCurrentMonth(selectedDate || new Date());
     }
   };
 
@@ -371,10 +514,15 @@ export default function HistoryScreen() {
       <Ionicons name="barbell-outline" size={64} color="#ccc" />
       <Text style={styles.emptyTitle}>No Workouts Found</Text>
       <Text style={styles.emptyText}>
-        {searchQuery || filterPeriod !== 'all' 
+        {searchQuery || filterPeriod !== 'all' || selectedDate
           ? 'Try adjusting your filters'
           : 'Start your first workout to see it here'}
       </Text>
+      {selectedDate && (
+        <TouchableOpacity style={styles.clearDateButton} onPress={clearDateFilter}>
+          <Text style={styles.clearDateButtonText}>Clear Date Filter</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -422,6 +570,75 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Calendar Section */}
+      <View style={styles.calendarSection}>
+        <TouchableOpacity 
+          style={styles.calendarToggle}
+          onPress={toggleCalendar}
+        >
+          <Ionicons 
+            name="calendar" 
+            size={20} 
+            color={selectedDate ? '#007AFF' : '#666'} 
+          />
+          <Text style={[
+            styles.calendarToggleText,
+            selectedDate && styles.calendarToggleTextActive
+          ]}>
+            {selectedDate ? formatDateForDisplay(selectedDate) : 'Select Date'}
+          </Text>
+          <Ionicons 
+            name={showCalendar ? "chevron-up" : "chevron-down"} 
+            size={16} 
+            color="#666" 
+          />
+        </TouchableOpacity>
+
+        {selectedDate && (
+          <TouchableOpacity 
+            style={styles.clearDateButtonSmall}
+            onPress={clearDateFilter}
+          >
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Calendar - FIXED: Better height management and compact design */}
+      {showCalendar && (
+        <View style={styles.calendarContainer}>
+          <View style={styles.calendarHeader}>
+            <TouchableOpacity onPress={() => navigateMonth('prev')}>
+              <Ionicons name="chevron-back" size={24} color="#007AFF" />
+            </TouchableOpacity>
+            <Text style={styles.calendarMonthText}>
+              {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </Text>
+            <TouchableOpacity onPress={() => navigateMonth('next')}>
+              <Ionicons name="chevron-forward" size={24} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.calendarWeekdays}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+              <Text key={day} style={styles.calendarWeekdayText}>{day}</Text>
+            ))}
+          </View>
+          
+          <View style={styles.calendarDays}>
+            {renderCalendarDays()}
+          </View>
+          
+          <View style={styles.calendarLegend}>
+            <View style={styles.legendItem}>
+              <View style={[styles.workoutDot, styles.legendDot]} />
+              <Text style={styles.legendText}>Workout completed</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Search Section */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
@@ -475,16 +692,26 @@ export default function HistoryScreen() {
 
       {renderStats()}
 
-      <FlatList
-        data={filteredWorkouts}
-        renderItem={renderWorkoutItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-        ListEmptyComponent={renderEmptyState}
-      />
+      {/* FIXED: Better layout management for workout list - more space when calendar is open */}
+      <View style={[
+        styles.workoutListContainer,
+        showCalendar && styles.workoutListContainerWithCalendar
+      ]}>
+        <FlatList
+          data={filteredWorkouts}
+          renderItem={renderWorkoutItem}
+          keyExtractor={item => item.id}
+          contentContainerStyle={[
+            styles.listContent,
+            filteredWorkouts.length === 0 && styles.emptyListContent
+          ]}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+          ListEmptyComponent={renderEmptyState}
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
 
       {/* Search Filter Modal */}
       <Modal
@@ -506,7 +733,6 @@ export default function HistoryScreen() {
             {[
               { value: 'all', label: 'All', icon: 'search', description: 'Search everything' },
               { value: 'name', label: 'Workout Name', icon: 'text', description: 'Search by workout name only' },
-              { value: 'date', label: 'Date', icon: 'calendar', description: 'Search by date' },
               { value: 'exercise', label: 'Exercise', icon: 'barbell', description: 'Search by exercise name' },
             ].map((filter) => (
               <TouchableOpacity
@@ -668,6 +894,141 @@ const styles = StyleSheet.create({
   filterButton: {
     padding: 5,
   },
+  // Calendar Section Styles
+  calendarSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'white',
+    marginHorizontal: 15,
+    marginTop: 10,
+    padding: 15,
+    borderRadius: 10,
+  },
+  calendarToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  calendarToggleText: {
+    fontSize: 16,
+    color: '#666',
+    marginLeft: 10,
+    marginRight: 8,
+    flex: 1,
+  },
+  calendarToggleTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  clearDateButtonSmall: {
+    padding: 4,
+  },
+  // FIXED: Better calendar container sizing - more compact
+  calendarContainer: {
+    backgroundColor: 'white',
+    marginHorizontal: 15,
+    marginTop: 5,
+    padding: 12,
+    borderRadius: 10,
+    maxHeight: screenHeight * 0.35, // Reduced height for more space
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  calendarMonthText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  calendarWeekdays: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  calendarWeekdayText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    width: 32,
+    textAlign: 'center',
+  },
+  calendarDays: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  calendarDayEmpty: {
+    width: 32,
+    height: 32,
+    margin: 2,
+  },
+  calendarDay: {
+    width: 32,
+    height: 32,
+    margin: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    position: 'relative',
+  },
+  calendarDayWithWorkout: {
+    backgroundColor: '#f0f8ff',
+  },
+  calendarDaySelected: {
+    backgroundColor: '#007AFF',
+  },
+  calendarDayToday: {
+    borderWidth: 1.5,
+    borderColor: '#007AFF',
+  },
+  calendarDayText: {
+    fontSize: 13,
+    color: '#333',
+  },
+  calendarDayTextWithWorkout: {
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  calendarDayTextSelected: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  calendarDayTextToday: {
+    fontWeight: 'bold',
+  },
+  workoutDot: {
+    position: 'absolute',
+    bottom: 2,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#007AFF',
+  },
+  calendarLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendDot: {
+    position: 'relative',
+    marginRight: 6,
+  },
+  legendText: {
+    fontSize: 11,
+    color: '#666',
+  },
+  // Search Section Styles
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -752,8 +1113,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
+  // FIXED: Better workout list container management - more space when calendar is open
+  workoutListContainer: {
+    flex: 1,
+  },
+  workoutListContainerWithCalendar: {
+    flex: 0.7, // Increased from 0.6 to 0.7 for more space
+  },
   listContent: {
     paddingBottom: 20,
+  },
+  emptyListContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   workoutCard: {
     backgroundColor: 'white',
@@ -827,6 +1199,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
+  },
+  clearDateButton: {
+    marginTop: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+  },
+  clearDateButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   searchFilterModalOverlay: {
     flex: 1,
