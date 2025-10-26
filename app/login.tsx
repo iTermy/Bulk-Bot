@@ -1,84 +1,62 @@
-// app/login.tsx - Login screen with detailed error handling
-import React, { useState } from 'react'
+import { router } from 'expo-router';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-} from 'react-native'
-import { supabase } from '../lib/supabase'
-import { router } from 'expo-router'
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { supabase } from '../lib/supabase';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [isSignUp, setIsSignUp] = useState(false)
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
 
   const handleAuth = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password')
-      return
+      Alert.alert('Error', 'Please enter both email and password');
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     
     try {
       if (isSignUp) {
-        // Sign up
-        console.log('Attempting signup for:', email)
-        const { data, error } = await supabase.auth.signUp({
+        const { error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-        })
+        });
         
-        if (error) {
-          console.error('Signup error:', error)
-          Alert.alert('Sign Up Error', error.message)
-        } else if (data?.user) {
-          console.log('Signup successful:', data.user.email)
-          Alert.alert(
-            'Success!', 
-            'Account created successfully. You can now log in.',
-            [{ text: 'OK', onPress: () => setIsSignUp(false) }]
-          )
-        } else {
-          Alert.alert('Error', 'Something went wrong. Please try again.')
-        }
+        if (error) throw error;
+        
+        Alert.alert(
+          'Success!', 
+          'Account created successfully. You can now log in.',
+          [{ text: 'OK', onPress: () => setIsSignUp(false) }]
+        );
       } else {
-        // Sign in
-        console.log('Attempting login for:', email)
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
-        })
+        });
         
-        if (error) {
-          console.error('Login error:', error)
-          Alert.alert('Login Error', error.message)
-        } else if (data?.session) {
-          console.log('Login successful:', data.session.user.email)
-          // Navigation will be handled by AuthContext
-          router.replace('/(tabs)')
-        } else {
-          Alert.alert('Error', 'Login failed. Please check your credentials.')
-        }
+        if (error) throw error;
+        
+        router.replace('/(tabs)');
       }
     } catch (error: any) {
-      console.error('Auth error:', error)
-      Alert.alert(
-        'Error',
-        error?.message || 'An unexpected error occurred. Please try again.'
-      )
+      Alert.alert('Error', error.message || 'Authentication failed');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <KeyboardAvoidingView 
@@ -136,19 +114,9 @@ export default function LoginScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-
-        {/* Debug info - remove in production */}
-        <View style={styles.debugInfo}>
-          <Text style={styles.debugText}>
-            Environment: {process.env.EXPO_PUBLIC_SUPABASE_URL ? '✓' : '✗'} URL
-          </Text>
-          <Text style={styles.debugText}>
-            API Key: {process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? '✓' : '✗'} Present
-          </Text>
-        </View>
       </View>
     </KeyboardAvoidingView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -206,15 +174,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 14,
   },
-  debugInfo: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    alignItems: 'center',
-  },
-  debugText: {
-    fontSize: 10,
-    color: '#999',
-  },
-})
+});
