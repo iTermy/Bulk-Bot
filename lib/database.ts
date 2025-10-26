@@ -1,12 +1,10 @@
 import { Exercise, supabase, Workout, WorkoutSet } from './supabase'
 
-// Exercise operations
 export const getExercises = async () => {
   const { data, error } = await supabase
     .from('exercises')
     .select('*')
     .order('name')
-  
   return { data, error }
 }
 
@@ -16,11 +14,9 @@ export const createExercise = async (exercise: Omit<Exercise, 'id' | 'created_at
     .insert(exercise)
     .select()
     .single()
-  
   return { data, error }
 }
 
-// Workout operations
 export const getUserWorkouts = async (userId: string) => {
   const { data, error } = await supabase
     .from('workouts')
