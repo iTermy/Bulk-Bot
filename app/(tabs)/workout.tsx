@@ -15,7 +15,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../lib/AuthContext'
-import { getExercises, createWorkout, createSet } from '../../lib/database'
+import { getExercises, createWorkout, createSet, getUserTemplates } from '../../lib/database'
 import { Exercise } from '../../lib/supabase'
 
 interface WorkoutExercise {
@@ -28,6 +28,33 @@ interface WorkoutExercise {
   }[]
 }
 
+interface Template {
+  id: string;
+  name: string;
+  notes: string | null;
+  is_favorite: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  template_exercises: TemplateExercise[];
+  is_recommended?: boolean;
+  difficulty_level?: 'beginner' | 'intermediate' | 'advanced';
+  frequency?: string;
+  description?: string;
+  tags?: string[];
+  badge_type?: 'popular' | 'new' | 'featured' | null;
+  user_id?: string;
+}
+
+interface TemplateExercise {
+  id: string;
+  exercise_id: string;
+  order_index: number;
+  default_sets: number;
+  default_reps: number | null;
+  default_weight: number | null;
+  exercises: Exercise;
+}
+
 export default function WorkoutScreen() {
   const { user } = useAuth()
   const [workoutStarted, setWorkoutStarted] = useState(false)
@@ -35,6 +62,7 @@ export default function WorkoutScreen() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [exerciseModalVisible, setExerciseModalVisible] = useState(false)
   const [saveModalVisible, setSaveModalVisible] = useState(false)
+  const [templateModalVisible, setTemplateModalVisible] = useState(false)
   const [loading, setLoading] = useState(false)
   const [exercisesLoaded, setExercisesLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -44,6 +72,8 @@ export default function WorkoutScreen() {
   const [workoutName, setWorkoutName] = useState('')
   const [tempWorkoutName, setTempWorkoutName] = useState('')
   const [startTime, setStartTime] = useState<Date | null>(null)
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
 
   // Load exercises when modal opens
   const loadExercises = useCallback(async () => {
@@ -76,6 +106,23 @@ export default function WorkoutScreen() {
     }
   }, [loading, exercisesLoaded])
 
+  // Load user templates
+  const loadTemplates = useCallback(async () => {
+    if (!user) return
+    
+    setTemplatesLoading(true)
+    try {
+      const { data, error } = await getUserTemplates(user.id)
+      if (error) throw error
+      setTemplates(data || [])
+    } catch (error) {
+      console.error('Error loading templates:', error)
+      Alert.alert('Error', 'Failed to load templates')
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }, [user])
+
   // Timer effect
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>
@@ -101,12 +148,43 @@ export default function WorkoutScreen() {
     }
   }
 
+  const handleOpenTemplateModal = () => {
+    setTemplateModalVisible(true)
+    loadTemplates()
+  }
+
   const startWorkout = () => {
     setWorkoutStarted(true)
     setStartTime(new Date())
     const defaultName = `Workout ${new Date().toLocaleDateString()}`
     setWorkoutName(defaultName)
     setTempWorkoutName(defaultName)
+  }
+
+  const loadTemplate = (template: Template) => {
+    if (!template.template_exercises || template.template_exercises.length === 0) {
+      Alert.alert('Error', 'This template has no exercises')
+      return
+    }
+
+    const newWorkoutExercises: WorkoutExercise[] = template.template_exercises
+      .sort((a, b) => a.order_index - b.order_index)
+      .map(te => ({
+        exercise: te.exercises,
+        sets: Array.from({ length: te.default_sets || 3 }, (_, index) => ({
+          id: `temp-${Date.now()}-${te.id}-${index}`,
+          weight: te.default_weight ? te.default_weight.toString() : '',
+          reps: te.default_reps ? te.default_reps.toString() : '',
+          completed: false,
+        })),
+      }))
+
+    setWorkoutExercises(newWorkoutExercises)
+    setWorkoutName(template.name)
+    setTempWorkoutName(template.name)
+    setTemplateModalVisible(false)
+    
+    Alert.alert('Template Loaded', `"${template.name}" template has been loaded. You can modify exercises and sets as needed.`)
   }
 
   const addExerciseToWorkout = (exercise: Exercise) => {
@@ -381,90 +459,140 @@ export default function WorkoutScreen() {
       </View>
 
       <ScrollView style={styles.content}>
-        {workoutExercises.map((workoutExercise, exerciseIndex) => (
-          <View key={`${workoutExercise.exercise.id}-${exerciseIndex}`} style={styles.exerciseContainer}>
-            <View style={styles.exerciseHeader}>
-              <Text style={styles.exerciseName}>{workoutExercise.exercise.name}</Text>
+        {workoutExercises.length === 0 ? (
+          <View style={styles.emptyWorkoutContainer}>
+            <Ionicons name="barbell-outline" size={60} color="#ccc" />
+            <Text style={styles.emptyWorkoutText}>No exercises added yet</Text>
+            <Text style={styles.emptyWorkoutSubtext}>
+              Start by adding exercises or loading a template
+            </Text>
+            
+            <View style={styles.startOptionsContainer}>
               <TouchableOpacity 
-                onPress={() => removeExercise(exerciseIndex)}
-                style={styles.removeExerciseButton}
+                style={styles.startOptionButton}
+                onPress={handleOpenExerciseModal}
               >
-                <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                <View style={styles.startOptionIcon}>
+                  <Ionicons name="add-circle" size={32} color="#007AFF" />
+                </View>
+                <Text style={styles.startOptionTitle}>Add Exercise</Text>
+                <Text style={styles.startOptionDescription}>
+                  Manually add exercises to build your workout
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.startOptionButton}
+                onPress={handleOpenTemplateModal}
+              >
+                <View style={styles.startOptionIcon}>
+                  <Ionicons name="document-text" size={32} color="#34C759" />
+                </View>
+                <Text style={styles.startOptionTitle}>Load Template</Text>
+                <Text style={styles.startOptionDescription}>
+                  Start with a pre-built workout template
+                </Text>
               </TouchableOpacity>
             </View>
-            
-            <View style={styles.setHeaderRow}>
-              <Text style={styles.setHeaderText}>Set</Text>
-              <Text style={styles.setHeaderText}>Weight</Text>
-              <Text style={styles.setHeaderText}>Reps</Text>
-              <Text style={styles.setHeaderText}>✓</Text>
-            </View>
-
-            {workoutExercise.sets.map((set, setIndex) => (
-              <View key={set.id} style={styles.setRow}>
-                <Text style={styles.setNumber}>{setIndex + 1}</Text>
-                
-                <TextInput
-                  style={[styles.setInput, set.completed && styles.completedInput]}
-                  value={set.weight}
-                  onChangeText={(value) => updateSet(exerciseIndex, setIndex, 'weight', value)}
-                  placeholder="0"
-                  keyboardType="numeric"
-                  editable={!set.completed}
-                />
-                
-                <TextInput
-                  style={[styles.setInput, set.completed && styles.completedInput]}
-                  value={set.reps}
-                  onChangeText={(value) => updateSet(exerciseIndex, setIndex, 'reps', value)}
-                  placeholder="0"
-                  keyboardType="numeric"
-                  editable={!set.completed}
-                />
-                
-                <View style={styles.setActions}>
-                  {!set.completed ? (
-                    <TouchableOpacity 
-                      onPress={() => markSetCompleted(exerciseIndex, setIndex)}
-                      style={styles.completeButton}
-                    >
-                      <Ionicons name="checkmark" size={20} color="#34C759" />
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.completedCheckmark}>
-                      <Ionicons name="checkmark-circle" size={20} color="#34C759" />
-                    </View>
-                  )}
-                  
-                  {workoutExercise.sets.length > 1 ? (
-                    <TouchableOpacity 
-                      onPress={() => removeSet(exerciseIndex, setIndex)}
-                      style={styles.removeSetButton}
-                    >
-                      <Ionicons name="remove-circle-outline" size={16} color="#FF3B30" />
-                    </TouchableOpacity>
-                  ) : null}
+          </View>
+        ) : (
+          <>
+            {workoutExercises.map((workoutExercise, exerciseIndex) => (
+              <View key={`${workoutExercise.exercise.id}-${exerciseIndex}`} style={styles.exerciseContainer}>
+                <View style={styles.exerciseHeader}>
+                  <Text style={styles.exerciseName}>{workoutExercise.exercise.name}</Text>
+                  <TouchableOpacity 
+                    onPress={() => removeExercise(exerciseIndex)}
+                    style={styles.removeExerciseButton}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                  </TouchableOpacity>
                 </View>
+                
+                <View style={styles.setHeaderRow}>
+                  <Text style={styles.setHeaderText}>Set</Text>
+                  <Text style={styles.setHeaderText}>Weight</Text>
+                  <Text style={styles.setHeaderText}>Reps</Text>
+                  <Text style={styles.setHeaderText}>✓</Text>
+                </View>
+
+                {workoutExercise.sets.map((set, setIndex) => (
+                  <View key={set.id} style={styles.setRow}>
+                    <Text style={styles.setNumber}>{setIndex + 1}</Text>
+                    
+                    <TextInput
+                      style={[styles.setInput, set.completed && styles.completedInput]}
+                      value={set.weight}
+                      onChangeText={(value) => updateSet(exerciseIndex, setIndex, 'weight', value)}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      editable={!set.completed}
+                    />
+                    
+                    <TextInput
+                      style={[styles.setInput, set.completed && styles.completedInput]}
+                      value={set.reps}
+                      onChangeText={(value) => updateSet(exerciseIndex, setIndex, 'reps', value)}
+                      placeholder="0"
+                      keyboardType="numeric"
+                      editable={!set.completed}
+                    />
+                    
+                    <View style={styles.setActions}>
+                      {!set.completed ? (
+                        <TouchableOpacity 
+                          onPress={() => markSetCompleted(exerciseIndex, setIndex)}
+                          style={styles.completeButton}
+                        >
+                          <Ionicons name="checkmark" size={20} color="#34C759" />
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.completedCheckmark}>
+                          <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+                        </View>
+                      )}
+                      
+                      {workoutExercise.sets.length > 1 ? (
+                        <TouchableOpacity 
+                          onPress={() => removeSet(exerciseIndex, setIndex)}
+                          style={styles.removeSetButton}
+                        >
+                          <Ionicons name="remove-circle-outline" size={16} color="#FF3B30" />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
+
+                <TouchableOpacity 
+                  onPress={() => addSet(exerciseIndex)}
+                  style={styles.addSetButton}
+                >
+                  <Ionicons name="add" size={16} color="#007AFF" />
+                  <Text style={styles.addSetText}>Add Set</Text>
+                </TouchableOpacity>
               </View>
             ))}
 
-            <TouchableOpacity 
-              onPress={() => addSet(exerciseIndex)}
-              style={styles.addSetButton}
-            >
-              <Ionicons name="add" size={16} color="#007AFF" />
-              <Text style={styles.addSetText}>Add Set</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+            <View style={styles.addButtonsRow}>
+              <TouchableOpacity 
+                style={styles.addExerciseButton}
+                onPress={handleOpenExerciseModal}
+              >
+                <Ionicons name="add" size={20} color="#007AFF" />
+                <Text style={styles.addExerciseText}>Add Exercise</Text>
+              </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.addExerciseButton}
-          onPress={handleOpenExerciseModal}
-        >
-          <Ionicons name="add" size={20} color="#007AFF" />
-          <Text style={styles.addExerciseText}>Add Exercise</Text>
-        </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.loadTemplateButton}
+                onPress={handleOpenTemplateModal}
+              >
+                <Ionicons name="document-text" size={20} color="#007AFF" />
+                <Text style={styles.loadTemplateText}>Load Template</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
 
       {/* Exercise Selection Modal */}
@@ -516,6 +644,68 @@ export default function WorkoutScreen() {
                 </TouchableOpacity>
               )}
               style={styles.exerciseList}
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* Template Selection Modal */}
+      <Modal
+        visible={templateModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setTemplateModalVisible(false)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Load Template</Text>
+            <View style={{ width: 60 }} />
+          </View>
+          
+          {templatesLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#007AFF" />
+              <Text style={styles.loadingText}>Loading templates...</Text>
+            </View>
+          ) : templates.length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <Ionicons name="document-text-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyText}>No templates found</Text>
+              <Text style={styles.emptySubtext}>
+                Create templates in the Templates tab to load them here
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={templates}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.templateOption}
+                  onPress={() => loadTemplate(item)}
+                >
+                  <View style={styles.templateInfo}>
+                    <Text style={styles.templateName}>{item.name}</Text>
+                    <Text style={styles.templateDetails}>
+                      {item.template_exercises?.length || 0} exercises
+                      {item.difficulty_level ? ` • ${item.difficulty_level}` : ''}
+                    </Text>
+                    {item.tags && item.tags.length > 0 && (
+                      <View style={styles.templateTags}>
+                        {item.tags.slice(0, 3).map((tag, index) => (
+                          <View key={index} style={styles.templateTag}>
+                            <Text style={styles.templateTagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#666" />
+                </TouchableOpacity>
+              )}
+              style={styles.templateList}
             />
           )}
         </View>
@@ -695,11 +885,55 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     marginTop: 20,
+    width: '100%',
+    alignItems: 'center',
   },
   startButtonText: {
     color: 'white',
     fontSize: 18,
     fontWeight: '600',
+  },
+  emptyWorkoutContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyWorkoutText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyWorkoutSubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  startOptionsContainer: {
+    width: '100%',
+    gap: 16,
+  },
+  startOptionButton: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#f0f0f0',
+  },
+  startOptionIcon: {
+    marginBottom: 12,
+  },
+  startOptionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  startOptionDescription: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
   exerciseContainer: {
     backgroundColor: 'white',
@@ -792,20 +1026,43 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 4,
   },
+  addButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginVertical: 20,
+  },
   addExerciseButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'white',
     borderRadius: 12,
     paddingVertical: 20,
-    marginVertical: 20,
     borderWidth: 2,
     borderColor: '#007AFF',
     borderStyle: 'dashed',
   },
   addExerciseText: {
     color: '#007AFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  loadTemplateButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingVertical: 20,
+    borderWidth: 2,
+    borderColor: '#34C759',
+    borderStyle: 'dashed',
+  },
+  loadTemplateText: {
+    color: '#34C759',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
@@ -836,6 +1093,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   loadingText: {
     marginTop: 16,
@@ -845,13 +1103,21 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#666',
-    marginBottom: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginHorizontal: 20,
   },
   retryButton: {
     backgroundColor: '#007AFF',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
+    marginTop: 16,
   },
   retryButtonText: {
     color: 'white',
@@ -878,6 +1144,48 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 2,
+  },
+  templateList: {
+    flex: 1,
+  },
+  templateOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  templateInfo: {
+    flex: 1,
+  },
+  templateName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  templateDetails: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  templateTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  templateTag: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  templateTagText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
   },
   saveModalOverlay: {
     flex: 1,
