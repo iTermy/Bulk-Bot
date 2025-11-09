@@ -18,7 +18,7 @@ import {
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
 
-type Workout = {
+interface Workout {
   id: string;
   user_id: string;
   name: string;
@@ -26,9 +26,9 @@ type Workout = {
   duration_minutes: number | null;
   notes: string | null;
   created_at: string;
-};
+}
 
-type Set = {
+interface Set {
   id: string;
   workout_id: string;
   exercise_id: string;
@@ -40,29 +40,55 @@ type Set = {
     name: string;
     muscle_groups: string[];
   };
-};
+}
 
-type WorkoutWithSets = Workout & {
+interface WorkoutWithSets extends Workout {
   sets: Set[];
   exerciseCount?: number;
-};
+}
+
+interface SupabaseSet {
+  id: string;
+  workout_id: string;
+  exercise_id: string;
+  weight: number;
+  reps: number;
+  set_number: number;
+  created_at: string;
+}
 
 type SearchFilter = 'all' | 'name' | 'exercise';
+type TimeFilter = 'all' | 'week' | 'month' | 'year';
 
 const { height: screenHeight } = Dimensions.get('window');
 
+const SEARCH_FILTER_OPTIONS = [
+  { value: 'all', label: 'All', icon: 'search' as const, description: 'Search everything' },
+  { value: 'name', label: 'Workout Name', icon: 'text' as const, description: 'Search by workout name only' },
+  { value: 'exercise', label: 'Exercise', icon: 'barbell' as const, description: 'Search by exercise name' },
+];
+
+const TIME_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Time' },
+  { value: 'week', label: 'Last Week' },
+  { value: 'month', label: 'Last Month' },
+  { value: 'year', label: 'Last Year' },
+];
+
 export default function HistoryScreen() {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [workouts, setWorkouts] = useState<WorkoutWithSets[]>([]);
   const [filteredWorkouts, setFilteredWorkouts] = useState<WorkoutWithSets[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // UI state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutWithSets | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showFilterOptions, setShowFilterOptions] = useState(false);
   const [showSearchFilterModal, setShowSearchFilterModal] = useState(false);
-  const [filterPeriod, setFilterPeriod] = useState<'all' | 'week' | 'month' | 'year'>('all');
+  const [filterPeriod, setFilterPeriod] = useState<TimeFilter>('all');
   const [searchFilter, setSearchFilter] = useState<SearchFilter>('all');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -82,38 +108,27 @@ export default function HistoryScreen() {
     try {
       setLoading(true);
       
-      const { data: workoutsData, error: workoutsError } = await supabase
-        .from('workouts')
-        .select(`
-          *,
-          sets (
-            *,
-            exercise_id
-          )
-        `)
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false });
+      const [workoutsResult, exercisesResult] = await Promise.all([
+        supabase
+          .from('workouts')
+          .select('*, sets (*, exercise_id)')
+          .eq('user_id', user?.id)
+          .order('date', { ascending: false }),
+        supabase.from('exercises').select('*')
+      ]);
 
-      if (workoutsError) throw workoutsError;
+      if (workoutsResult.error) throw workoutsResult.error;
+      if (exercisesResult.error) throw exercisesResult.error;
 
-      const { data: exercisesData, error: exercisesError } = await supabase
-        .from('exercises')
-        .select('*');
-
-      if (exercisesError) throw exercisesError;
-
-      const exercisesMap = new Map();
-      exercisesData?.forEach(exercise => {
-        exercisesMap.set(exercise.id, exercise);
-      });
-
-      const processedWorkouts = workoutsData?.map(workout => {
-        const setsWithExercises = workout.sets?.map((set: any) => ({
+      const exercisesMap = new Map(exercisesResult.data?.map(ex => [ex.id, ex]));
+      
+      const processedWorkouts = workoutsResult.data?.map(workout => {
+        const setsWithExercises = workout.sets?.map((set: SupabaseSet) => ({
           ...set,
           exercise: exercisesMap.get(set.exercise_id) || { name: 'Unknown Exercise', muscle_groups: [] }
         }));
 
-        const uniqueExercises = new Set(setsWithExercises?.map((set: any) => set.exercise_id));
+        const uniqueExercises = new Set(setsWithExercises?.map((set: Set) => set.exercise_id));
         
         return {
           ...workout,
@@ -137,39 +152,25 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
-  // FIXED: Improved date comparison function that properly handles timezones
-  const isSameDay = (date1: Date, date2: Date): boolean => {
-    // Convert both dates to YYYY-MM-DD format for accurate comparison
-    const d1 = new Date(date1);
-    const d2 = new Date(date2);
-    
-    // Use UTC methods to avoid timezone issues
-    return d1.getUTCFullYear() === d2.getUTCFullYear() &&
-           d1.getUTCMonth() === d2.getUTCMonth() &&
-           d1.getUTCDate() === d2.getUTCDate();
-  };
-
-  // NEW: Helper function to normalize dates for comparison
   const normalizeDate = (dateString: string): Date => {
     if (dateString.includes('T')) {
-      // For ISO strings, parse and use UTC components
       const date = new Date(dateString);
-      return new Date(Date.UTC(
-        date.getUTCFullYear(),
-        date.getUTCMonth(),
-        date.getUTCDate()
-      ));
-    } else {
-      // For date-only strings like "2025-10-11"
-      const [year, month, day] = dateString.split('-').map(Number);
-      return new Date(Date.UTC(year, month - 1, day));
+      return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
     }
+    
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+  };
+
+  const isSameDay = (date1: Date, date2: Date): boolean => {
+    return date1.getUTCFullYear() === date2.getUTCFullYear() &&
+           date1.getUTCMonth() === date2.getUTCMonth() &&
+           date1.getUTCDate() === date2.getUTCDate();
   };
 
   const filterWorkouts = () => {
     let filtered = [...workouts];
 
-    // Apply date filter first (highest priority) - FIXED TIMEZONE ISSUE
     if (selectedDate) {
       filtered = filtered.filter(workout => {
         const workoutDate = normalizeDate(workout.date);
@@ -180,62 +181,38 @@ export default function HistoryScreen() {
         ));
         return isSameDay(workoutDate, selectedDateUTC);
       });
-    }
-
-    // Apply time period filter (only if no date is selected)
-    else if (filterPeriod !== 'all') {
-      const now = new Date();
+    } else if (filterPeriod !== 'all') {
       const cutoffDate = new Date();
       
       switch (filterPeriod) {
-        case 'week':
-          cutoffDate.setDate(now.getDate() - 7);
-          break;
-        case 'month':
-          cutoffDate.setMonth(now.getMonth() - 1);
-          break;
-        case 'year':
-          cutoffDate.setFullYear(now.getFullYear() - 1);
-          break;
+        case 'week': cutoffDate.setDate(cutoffDate.getDate() - 7); break;
+        case 'month': cutoffDate.setMonth(cutoffDate.getMonth() - 1); break;
+        case 'year': cutoffDate.setFullYear(cutoffDate.getFullYear() - 1); break;
       }
 
-      filtered = filtered.filter(workout => 
-        new Date(workout.date) >= cutoffDate
-      );
+      filtered = filtered.filter(workout => new Date(workout.date) >= cutoffDate);
     }
 
-    // Apply search filter
     if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      
       filtered = filtered.filter(workout => {
-        const searchLower = searchQuery.toLowerCase();
-        
         switch (searchFilter) {
           case 'name':
-            // Search only in workout name
             return workout.name?.toLowerCase().includes(searchLower);
-            
           case 'exercise':
-            // Search only in exercise names
             return workout.sets?.some(set => 
               set.exercise?.name.toLowerCase().includes(searchLower)
             );
-            
-          case 'all':
           default:
-            // Search everywhere
-            if (workout.name?.toLowerCase().includes(searchLower)) return true;
-            
-            const hasMatchingExercise = workout.sets?.some(set => 
-              set.exercise?.name.toLowerCase().includes(searchLower)
+            return (
+              workout.name?.toLowerCase().includes(searchLower) ||
+              workout.sets?.some(set => 
+                set.exercise?.name.toLowerCase().includes(searchLower)
+              ) ||
+              workout.notes?.toLowerCase().includes(searchLower) ||
+              formatDate(workout.date).toLowerCase().includes(searchLower)
             );
-            if (hasMatchingExercise) return true;
-            
-            if (workout.notes?.toLowerCase().includes(searchLower)) return true;
-            
-            const dateMatch = formatDate(workout.date).toLowerCase().includes(searchLower);
-            if (dateMatch) return true;
-            
-            return false;
         }
       });
     }
@@ -254,23 +231,15 @@ export default function HistoryScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const { error: setsError } = await supabase
-                .from('sets')
-                .delete()
-                .eq('workout_id', workoutId);
+              const [{ error: setsError }, { error: workoutError }] = await Promise.all([
+                supabase.from('sets').delete().eq('workout_id', workoutId),
+                supabase.from('workouts').delete().eq('id', workoutId)
+              ]);
 
-              if (setsError) throw setsError;
-
-              const { error: workoutError } = await supabase
-                .from('workouts')
-                .delete()
-                .eq('id', workoutId);
-
-              if (workoutError) throw workoutError;
+              if (setsError || workoutError) throw setsError || workoutError;
 
               setWorkouts(prev => prev.filter(w => w.id !== workoutId));
               setShowDetailModal(false);
-              Alert.alert('Success', 'Workout deleted successfully');
             } catch (error) {
               console.error('Error deleting workout:', error);
               Alert.alert('Error', 'Failed to delete workout');
@@ -282,14 +251,9 @@ export default function HistoryScreen() {
   };
 
   const formatDate = (dateString: string) => {
-    let date: Date;
-    
-    if (dateString.includes('T')) {
-      date = new Date(dateString);
-    } else {
-      const [year, month, day] = dateString.split('-').map(Number);
-      date = new Date(year, month - 1, day);
-    }
+    const date = dateString.includes('T') 
+      ? new Date(dateString) 
+      : new Date(dateString + 'T00:00:00');
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -300,125 +264,64 @@ export default function HistoryScreen() {
     const workoutDate = new Date(date);
     workoutDate.setHours(0, 0, 0, 0);
 
-    if (workoutDate.getTime() === today.getTime()) {
-      return 'Today';
-    } else if (workoutDate.getTime() === yesterday.getTime()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
-      });
-    }
+    if (workoutDate.getTime() === today.getTime()) return 'Today';
+    if (workoutDate.getTime() === yesterday.getTime()) return 'Yesterday';
+    
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
+    });
   };
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return 'N/A';
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    if (hours > 0) {
-      return `${hours}h ${mins}m`;
-    }
-    return `${mins} min`;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
   };
 
   const groupSetsByExercise = (sets: Set[]) => {
     const grouped: { [key: string]: Set[] } = {};
     sets?.forEach(set => {
       const exerciseName = set.exercise?.name || 'Unknown';
-      if (!grouped[exerciseName]) {
-        grouped[exerciseName] = [];
-      }
+      if (!grouped[exerciseName]) grouped[exerciseName] = [];
       grouped[exerciseName].push(set);
     });
     return grouped;
   };
 
-  const getSearchFilterLabel = () => {
-    switch (searchFilter) {
-      case 'name':
-        return 'Workout Name';
-      case 'exercise':
-        return 'Exercise';
-      case 'all':
-      default:
-        return 'All';
-    }
+  const getSearchConfig = () => {
+    const config = {
+      all: { placeholder: 'Search workouts or exercises...', label: 'All' },
+      name: { placeholder: 'Search by workout name...', label: 'Workout Name' },
+      exercise: { placeholder: 'Search by exercise name...', label: 'Exercise' },
+    };
+    return config[searchFilter];
   };
 
-  const getSearchPlaceholder = () => {
-    switch (searchFilter) {
-      case 'name':
-        return 'Search by workout name...';
-      case 'exercise':
-        return 'Search by exercise name...';
-      case 'all':
-      default:
-        return 'Search workouts or exercises...';
-    }
-  };
+  const getDaysInMonth = (date: Date) => 
+    new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
 
-  const formatDateForDisplay = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const handleDateSelect = (date: Date) => {
-    setSelectedDate(date);
-    // Auto-collapse calendar after selecting a date for better UX
-    setTimeout(() => setShowCalendar(false), 300);
-  };
-
-  const clearDateFilter = () => {
-    setSelectedDate(null);
-  };
-
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    const newMonth = new Date(currentMonth);
-    if (direction === 'prev') {
-      newMonth.setMonth(newMonth.getMonth() - 1);
-    } else {
-      newMonth.setMonth(newMonth.getMonth() + 1);
-    }
-    setCurrentMonth(newMonth);
-  };
-
-  const getDaysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
-
-  const getFirstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
-  };
+  const getFirstDayOfMonth = (date: Date) => 
+    new Date(date.getFullYear(), date.getMonth(), 1).getDay();
 
   const renderCalendarDays = () => {
     const days = [];
     const daysInMonth = getDaysInMonth(currentMonth);
     const firstDay = getFirstDayOfMonth(currentMonth);
     
-    // Add empty cells for days before the first day of the month
     for (let i = 0; i < firstDay; i++) {
       days.push(<View key={`empty-${i}`} style={styles.calendarDayEmpty} />);
     }
     
-    // Add cells for each day of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
       
-      // FIXED: Use the improved date comparison logic for calendar dots
       const hasWorkout = workouts.some(workout => {
         const workoutDate = normalizeDate(workout.date);
-        const calendarDateUTC = new Date(Date.UTC(
-          date.getFullYear(),
-          date.getMonth(),
-          date.getDate()
-        ));
+        const calendarDateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
         return isSameDay(workoutDate, calendarDateUTC);
       });
       
@@ -426,6 +329,7 @@ export default function HistoryScreen() {
         new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())),
         new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()))
       );
+      
       const isToday = isSameDay(
         new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())),
         new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()))
@@ -440,7 +344,10 @@ export default function HistoryScreen() {
             isSelected && styles.calendarDaySelected,
             isToday && styles.calendarDayToday
           ]}
-          onPress={() => handleDateSelect(date)}
+          onPress={() => {
+            setSelectedDate(date);
+            setTimeout(() => setShowCalendar(false), 300);
+          }}
         >
           <Text style={[
             styles.calendarDayText,
@@ -456,6 +363,12 @@ export default function HistoryScreen() {
     }
     
     return days;
+  };
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    const newMonth = new Date(currentMonth);
+    newMonth.setMonth(newMonth.getMonth() + (direction === 'next' ? 1 : -1));
+    setCurrentMonth(newMonth);
   };
 
   const toggleCalendar = () => {
@@ -492,20 +405,20 @@ export default function HistoryScreen() {
         </View>
       </View>
 
-      {item.sets && item.sets.length > 0 ? (
+      {item.sets && item.sets.length > 0 && (
         <View style={styles.exercisePreview}>
           {Object.keys(groupSetsByExercise(item.sets)).slice(0, 3).map((exerciseName, index) => (
             <Text key={index} style={styles.exercisePreviewText}>
               • {exerciseName}
             </Text>
           ))}
-          {Object.keys(groupSetsByExercise(item.sets)).length > 3 ? (
+          {Object.keys(groupSetsByExercise(item.sets)).length > 3 && (
             <Text style={styles.exercisePreviewText}>
               + {Object.keys(groupSetsByExercise(item.sets)).length - 3} more
             </Text>
-          ) : null}
+          )}
         </View>
-      ) : null}
+      )}
     </TouchableOpacity>
   );
 
@@ -519,7 +432,7 @@ export default function HistoryScreen() {
           : 'Start your first workout to see it here'}
       </Text>
       {selectedDate && (
-        <TouchableOpacity style={styles.clearDateButton} onPress={clearDateFilter}>
+        <TouchableOpacity style={styles.clearDateButton} onPress={() => setSelectedDate(null)}>
           <Text style={styles.clearDateButtonText}>Clear Date Filter</Text>
         </TouchableOpacity>
       )}
@@ -554,6 +467,8 @@ export default function HistoryScreen() {
     );
   }
 
+  const searchConfig = getSearchConfig();
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -570,7 +485,6 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Calendar Section */}
       <View style={styles.calendarSection}>
         <TouchableOpacity 
           style={styles.calendarToggle}
@@ -585,7 +499,12 @@ export default function HistoryScreen() {
             styles.calendarToggleText,
             selectedDate && styles.calendarToggleTextActive
           ]}>
-            {selectedDate ? formatDateForDisplay(selectedDate) : 'Select Date'}
+            {selectedDate ? selectedDate.toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+            }) : 'Select Date'}
           </Text>
           <Ionicons 
             name={showCalendar ? "chevron-up" : "chevron-down"} 
@@ -597,14 +516,13 @@ export default function HistoryScreen() {
         {selectedDate && (
           <TouchableOpacity 
             style={styles.clearDateButtonSmall}
-            onPress={clearDateFilter}
+            onPress={() => setSelectedDate(null)}
           >
             <Ionicons name="close-circle" size={20} color="#999" />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Calendar - FIXED: Better height management and compact design */}
       {showCalendar && (
         <View style={styles.calendarContainer}>
           <View style={styles.calendarHeader}>
@@ -638,12 +556,11 @@ export default function HistoryScreen() {
         </View>
       )}
 
-      {/* Search Section */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder={getSearchPlaceholder()}
+          placeholder={searchConfig.placeholder}
           value={searchQuery}
           onChangeText={setSearchQuery}
           clearButtonMode="while-editing"
@@ -656,7 +573,7 @@ export default function HistoryScreen() {
             styles.searchFilterText,
             searchFilter !== 'all' && styles.searchFilterTextActive
           ]}>
-            {getSearchFilterLabel()}
+            {searchConfig.label}
           </Text>
           <Ionicons 
             name="chevron-down" 
@@ -666,33 +583,32 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {showFilterOptions ? (
+      {showFilterOptions && (
         <View style={styles.filterContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {['all', 'week', 'month', 'year'].map(period => (
+            {TIME_FILTER_OPTIONS.map(({ value, label }) => (
               <TouchableOpacity
-                key={period}
+                key={value}
                 style={[
                   styles.filterChip,
-                  filterPeriod === period && styles.filterChipActive
+                  filterPeriod === value && styles.filterChipActive
                 ]}
-                onPress={() => setFilterPeriod(period as any)}
+                onPress={() => setFilterPeriod(value as TimeFilter)}
               >
                 <Text style={[
                   styles.filterChipText,
-                  filterPeriod === period && styles.filterChipTextActive
+                  filterPeriod === value && styles.filterChipTextActive
                 ]}>
-                  {period === 'all' ? 'All Time' : `Last ${period}`}
+                  {label}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
-      ) : null}
+      )}
 
       {renderStats()}
 
-      {/* FIXED: Better layout management for workout list - more space when calendar is open */}
       <View style={[
         styles.workoutListContainer,
         showCalendar && styles.workoutListContainerWithCalendar
@@ -713,11 +629,10 @@ export default function HistoryScreen() {
         />
       </View>
 
-      {/* Search Filter Modal */}
       <Modal
         visible={showSearchFilterModal}
         animationType="slide"
-        transparent={true}
+        transparent
         onRequestClose={() => setShowSearchFilterModal(false)}
       >
         <TouchableOpacity 
@@ -730,11 +645,7 @@ export default function HistoryScreen() {
               <Text style={styles.searchFilterModalTitle}>Search By</Text>
             </View>
             
-            {[
-              { value: 'all', label: 'All', icon: 'search', description: 'Search everything' },
-              { value: 'name', label: 'Workout Name', icon: 'text', description: 'Search by workout name only' },
-              { value: 'exercise', label: 'Exercise', icon: 'barbell', description: 'Search by exercise name' },
-            ].map((filter) => (
+            {SEARCH_FILTER_OPTIONS.map((filter) => (
               <TouchableOpacity
                 key={filter.value}
                 style={[
@@ -747,7 +658,7 @@ export default function HistoryScreen() {
                 }}
               >
                 <Ionicons 
-                  name={filter.icon as any} 
+                  name={filter.icon} 
                   size={24} 
                   color={searchFilter === filter.value ? '#007AFF' : '#666'} 
                 />
@@ -762,16 +673,15 @@ export default function HistoryScreen() {
                     {filter.description}
                   </Text>
                 </View>
-                {searchFilter === filter.value ? (
+                {searchFilter === filter.value && (
                   <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
-                ) : null}
+                )}
               </TouchableOpacity>
             ))}
           </View>
         </TouchableOpacity>
       </Modal>
 
-      {/* Workout Detail Modal */}
       <Modal
         visible={showDetailModal}
         animationType="slide"
@@ -790,7 +700,7 @@ export default function HistoryScreen() {
           </View>
 
           <ScrollView style={styles.modalContent}>
-            {selectedWorkout ? (
+            {selectedWorkout && (
               <>
                 <View style={styles.detailSection}>
                   <Text style={styles.detailTitle}>
@@ -798,14 +708,9 @@ export default function HistoryScreen() {
                   </Text>
                   <Text style={styles.detailDate}>
                     {(() => {
-                      let date: Date;
-                      
-                      if (selectedWorkout.date.includes('T')) {
-                        date = new Date(selectedWorkout.date);
-                      } else {
-                        const [year, month, day] = selectedWorkout.date.split('-').map(Number);
-                        date = new Date(year, month - 1, day);
-                      }
+                      const date = selectedWorkout.date.includes('T') 
+                        ? new Date(selectedWorkout.date) 
+                        : new Date(selectedWorkout.date + 'T00:00:00');
                       
                       return date.toLocaleDateString('en-US', {
                         weekday: 'long',
@@ -832,12 +737,12 @@ export default function HistoryScreen() {
                   </View>
                 </View>
 
-                {selectedWorkout.notes ? (
+                {selectedWorkout.notes && (
                   <View style={styles.detailSection}>
                     <Text style={styles.sectionTitle}>Notes</Text>
                     <Text style={styles.notesText}>{selectedWorkout.notes}</Text>
                   </View>
-                ) : null}
+                )}
 
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionTitle}>Exercises</Text>
@@ -858,7 +763,7 @@ export default function HistoryScreen() {
                   ))}
                 </View>
               </>
-            ) : null}
+            )}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -866,6 +771,7 @@ export default function HistoryScreen() {
   );
 }
 
+// Styles remain exactly the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -894,7 +800,6 @@ const styles = StyleSheet.create({
   filterButton: {
     padding: 5,
   },
-  // Calendar Section Styles
   calendarSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -924,14 +829,13 @@ const styles = StyleSheet.create({
   clearDateButtonSmall: {
     padding: 4,
   },
-  // FIXED: Better calendar container sizing - more compact
   calendarContainer: {
     backgroundColor: 'white',
     marginHorizontal: 15,
     marginTop: 5,
     padding: 12,
     borderRadius: 10,
-    maxHeight: screenHeight * 0.35, // Reduced height for more space
+    maxHeight: screenHeight * 0.35,
   },
   calendarHeader: {
     flexDirection: 'row',
@@ -1028,7 +932,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#666',
   },
-  // Search Section Styles
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1113,12 +1016,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
-  // FIXED: Better workout list container management - more space when calendar is open
   workoutListContainer: {
     flex: 1,
   },
   workoutListContainerWithCalendar: {
-    flex: 0.7, // Increased from 0.6 to 0.7 for more space
+    flex: 0.7,
   },
   listContent: {
     paddingBottom: 20,

@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Home screen with calendar, streak system, and centered PR layout
+// app/(tabs)/index.tsx
 import { Ionicons } from '@expo/vector-icons'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
@@ -19,47 +19,62 @@ import { getUserWorkouts } from '../../lib/database'
 import { supabase, Workout } from '../../lib/supabase'
 
 type Set = {
-  id: string;
-  workout_id: string;
-  exercise_id: string;
-  weight: number | undefined;
-  reps: number;
-  set_number: number;
-  created_at: string;
+  id: string
+  workout_id: string
+  exercise_id: string
+  weight: number | undefined
+  reps: number
+  set_number: number
+  created_at: string
   exercise?: {
-    name: string;
-    muscle_groups: string[];
-  };
-};
+    name: string
+    muscle_groups: string[]
+  }
+}
 
 type WorkoutWithSets = Workout & {
-  sets: Set[];
-  totalVolume?: number;
-  exerciseCount?: number;
-};
+  sets: Set[]
+  totalVolume?: number
+  exerciseCount?: number
+}
 
 type PersonalRecord = {
-  exerciseName: string;
-  weight: number;
-  reps: number;
-  date: string;
-  workoutId: string;
-  workoutName: string;
-};
+  exerciseName: string
+  weight: number
+  reps: number
+  date: string
+  workoutId: string
+  workoutName: string
+}
 
 type Exercise = {
-  id: string;
-  name: string;
-  muscle_groups: string[];
-  equipment: string;
-  category: string;
-  created_at: string;
-};
+  id: string
+  name: string
+  muscle_groups: string[]
+  equipment: string
+  category: string
+  created_at: string
+}
 
-const SELECTED_EXERCISES_KEY = 'selected_exercises';
-const WORKOUT_DAYS_KEY = 'workout_days';
-const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const SELECTED_EXERCISES_KEY = 'selected_exercises'
+const WORKOUT_DAYS_KEY = 'workout_days'
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+const STREAK_BADGES = [
+  { emoji: '🐭', name: 'Mouse', days: 30, description: '1 month streak' },
+  { emoji: '🐹', name: 'Hamster', days: 60, description: '2 months streak' },
+  { emoji: '🐸', name: 'Frog', days: 90, description: '3 months streak' },
+  { emoji: '🐱', name: 'Cat', days: 120, description: '4 months streak' },
+  { emoji: '🐶', name: 'Dog', days: 150, description: '5 months streak' },
+  { emoji: '🐵', name: 'Monkey', days: 180, description: '6 months streak' },
+  { emoji: '🐷', name: 'Pig', days: 210, description: '7 months streak' },
+  { emoji: '🐮', name: 'Cow', days: 240, description: '8 months streak' },
+  { emoji: '🐻', name: 'Bear', days: 270, description: '9 months streak' },
+  { emoji: '🐼', name: 'Panda', days: 300, description: '10 months streak' },
+  { emoji: '🐻‍❄️', name: 'Arctic Bear', days: 330, description: '11 months streak' },
+  { emoji: '🐲', name: 'Dragon', days: 360, description: '1 year+ streak' },
+]
 
 export default function HomeScreen() {
   const { user, signOut } = useAuth()
@@ -101,49 +116,27 @@ export default function HomeScreen() {
   }, [workouts, selectedWorkoutDays])
 
   const loadSelectedExercises = async () => {
-    try {
-      const savedExercises = await AsyncStorage.getItem(SELECTED_EXERCISES_KEY)
-      if (savedExercises) {
-        setSelectedExercises(JSON.parse(savedExercises))
-      }
-    } catch (error) {
-      console.error('Error loading selected exercises:', error)
-    }
+    const savedExercises = await AsyncStorage.getItem(SELECTED_EXERCISES_KEY)
+    if (savedExercises) setSelectedExercises(JSON.parse(savedExercises))
   }
 
   const loadWorkoutDays = async () => {
-    try {
-      const savedDays = await AsyncStorage.getItem(WORKOUT_DAYS_KEY)
-      if (savedDays) {
-        setSelectedWorkoutDays(JSON.parse(savedDays))
-      }
-    } catch (error) {
-      console.error('Error loading workout days:', error)
-    }
+    const savedDays = await AsyncStorage.getItem(WORKOUT_DAYS_KEY)
+    if (savedDays) setSelectedWorkoutDays(JSON.parse(savedDays))
   }
 
   const saveSelectedExercises = async (exercises: string[]) => {
-    try {
-      await AsyncStorage.setItem(SELECTED_EXERCISES_KEY, JSON.stringify(exercises))
-      setSelectedExercises(exercises)
-      setShowPRModal(false)
-      Alert.alert('Success', 'Your exercise selections have been saved!')
-    } catch (error) {
-      console.error('Error saving selected exercises:', error)
-      Alert.alert('Error', 'Failed to save exercise selections')
-    }
+    await AsyncStorage.setItem(SELECTED_EXERCISES_KEY, JSON.stringify(exercises))
+    setSelectedExercises(exercises)
+    setShowPRModal(false)
+    Alert.alert('Success', 'Your exercise selections have been saved!')
   }
 
   const saveWorkoutDays = async (days: number[]) => {
-    try {
-      await AsyncStorage.setItem(WORKOUT_DAYS_KEY, JSON.stringify(days))
-      setSelectedWorkoutDays(days)
-      setShowWorkoutDaysModal(false)
-      Alert.alert('Success', 'Your workout schedule has been saved!')
-    } catch (error) {
-      console.error('Error saving workout days:', error)
-      Alert.alert('Error', 'Failed to save workout schedule')
-    }
+    await AsyncStorage.setItem(WORKOUT_DAYS_KEY, JSON.stringify(days))
+    setSelectedWorkoutDays(days)
+    setShowWorkoutDaysModal(false)
+    Alert.alert('Success', 'Your workout schedule has been saved!')
   }
 
   const calculateStreak = () => {
@@ -164,19 +157,20 @@ export default function HomeScreen() {
       })
     )
 
-    let streak = 0
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    
-    let checkDate = new Date(today)
     
     if (selectedWorkoutDays.includes(today.getDay()) && !workoutDates.has(today.getTime())) {
       setCurrentStreak(0)
       return
     }
 
+    let streak = 0
+    let checkDate = new Date(today)
+
     while (true) {
       let foundScheduledDay = false
+      
       for (let i = 0; i < 14; i++) {
         checkDate.setDate(checkDate.getDate() - 1)
         
@@ -194,9 +188,7 @@ export default function HomeScreen() {
         }
       }
       
-      if (!foundScheduledDay) {
-        break
-      }
+      if (!foundScheduledDay) break
     }
 
     setCurrentStreak(streak)
@@ -205,120 +197,72 @@ export default function HomeScreen() {
 
   const updateStreakBadge = (streak: number) => {
     const months = Math.floor(streak / 30)
-    if (months >= 12) {
-      setStreakBadge('🐲')
-    } else if (months >= 11) {
-      setStreakBadge('🐻‍❄️')
-    } else if (months >= 10) {
-      setStreakBadge('🐼')
-    } else if (months >= 9) {
-      setStreakBadge('🐻')
-    } else if (months >= 8) {
-      setStreakBadge('🐮')
-    } else if (months >= 7) {
-      setStreakBadge('🐷')
-    } else if (months >= 6) {
-      setStreakBadge('🐵')
-    } else if (months >= 5) {
-      setStreakBadge('🐶')
-    } else if (months >= 4) {
-      setStreakBadge('🐱')
-    } else if (months >= 3) {
-      setStreakBadge('🐸')
-    } else if (months >= 2) {
-      setStreakBadge('🐹')
-    } else if (months >= 1) {
-      setStreakBadge('🐭')
-    } else {
-      setStreakBadge('🐭')
-    }
+    const badgeIndex = Math.min(Math.max(months - 1, 0), STREAK_BADGES.length - 1)
+    setStreakBadge(STREAK_BADGES[badgeIndex].emoji)
   }
 
   const loadWorkouts = async () => {
     if (!user) return
     
-    try {
-      const { data, error } = await getUserWorkouts(user.id)
-      if (error) {
-        console.error('Error loading workouts:', error)
-      } else {
-        setWorkouts(data || [])
-      }
-
-      await loadWorkoutsWithSets()
-    } catch (error) {
-      console.error('Unexpected error:', error)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
+    const { data, error } = await getUserWorkouts(user.id)
+    if (!error) setWorkouts(data || [])
+    
+    await loadWorkoutsWithSets()
+    setLoading(false)
+    setRefreshing(false)
   }
 
   const loadAvailableExercises = async () => {
-    try {
-      const { data: exercisesData, error } = await supabase
-        .from('exercises')
-        .select('*')
-        .order('name')
+    const { data, error } = await supabase
+      .from('exercises')
+      .select('*')
+      .order('name')
 
-      if (error) throw error
-      setAvailableExercises(exercisesData || [])
-    } catch (error) {
-      console.error('Error loading exercises:', error)
-    }
+    if (!error) setAvailableExercises(data || [])
   }
 
   const loadWorkoutsWithSets = async () => {
-    try {
-      const { data: workoutsData, error: workoutsError } = await supabase
-        .from('workouts')
-        .select(`
-          *,
-          sets (
-            *,
-            exercise_id
-          )
-        `)
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false })
+    const { data: workoutsData, error: workoutsError } = await supabase
+      .from('workouts')
+      .select('*, sets (*)')
+      .eq('user_id', user?.id)
+      .order('date', { ascending: false })
 
-      if (workoutsError) throw workoutsError
+    if (workoutsError) return
 
-      const { data: exercisesData, error: exercisesError } = await supabase
-        .from('exercises')
-        .select('*')
+    const { data: exercisesData, error: exercisesError } = await supabase
+      .from('exercises')
+      .select('*')
 
-      if (exercisesError) throw exercisesError
+    if (exercisesError) return
 
-      const exercisesMap = new Map()
-      exercisesData?.forEach(exercise => {
-        exercisesMap.set(exercise.id, exercise)
-      })
+    const exercisesMap = new Map(exercisesData?.map(ex => [ex.id, ex]))
 
-      const processedWorkouts = workoutsData?.map(workout => {
-        const setsWithExercises = workout.sets?.map((set: any) => ({
-          ...set,
-          exercise: exercisesMap.get(set.exercise_id) || { name: 'Unknown Exercise', muscle_groups: [] }
-        }))
-
-        const totalVolume = setsWithExercises?.reduce((total: number, set: any) => {
-          return total + ((set.weight || 0) * set.reps)
-        }, 0) || 0
-
-        const uniqueExercises = new Set(setsWithExercises?.map((set: any) => set.exercise_id))
-        
-        return {
-          ...workout,
-          sets: setsWithExercises || [],
-          totalVolume,
-          exerciseCount: uniqueExercises.size,
+    const processedWorkouts = workoutsData?.map(workout => {
+      const setsWithExercises = workout.sets?.map((set: any) => ({
+        ...set,
+        exercise: exercisesMap.get(set.exercise_id) || { 
+          name: 'Unknown Exercise', 
+          muscle_groups: [] 
         }
-      }) || []
+      }))
 
-      setWorkoutsWithSets(processedWorkouts)
-    } catch (error) {
-      console.error('Error loading workouts with sets:', error)
-    }
+      const totalVolume = setsWithExercises?.reduce(
+        (total: number, set: any) => total + ((set.weight || 0) * set.reps), 
+        0
+      ) || 0
+
+      const uniqueExercises = new Set(setsWithExercises?.map((set: any) => set.exercise_id))
+      
+      return {
+        ...workout,
+        sets: setsWithExercises || [],
+        totalVolume,
+        exerciseCount: uniqueExercises.size,
+      }
+    }) || []
+
+    setWorkoutsWithSets(processedWorkouts)
   }
 
   const calculatePersonalRecords = () => {
@@ -326,84 +270,55 @@ export default function HomeScreen() {
 
     workoutsWithSets.forEach(workout => {
       workout.sets?.forEach(set => {
-        if (set.exercise && 
-            set.weight !== undefined && 
-            set.weight > 0 && 
-            selectedExercises.includes(set.exercise.name)) {
-          
-          const exerciseName = set.exercise.name
-          const currentPR = exercisePRs.get(exerciseName)
+        if (!set.exercise || !set.weight || !selectedExercises.includes(set.exercise.name)) return
 
-          const shouldUpdatePR = !currentPR || 
-            set.weight > currentPR.weight || 
-            (set.weight === currentPR.weight && set.reps > currentPR.reps)
+        const exerciseName = set.exercise.name
+        const currentPR = exercisePRs.get(exerciseName)
 
-          if (shouldUpdatePR) {
-            const newPR: PersonalRecord = {
-              exerciseName,
-              weight: set.weight,
-              reps: set.reps,
-              date: workout.date,
-              workoutId: workout.id,
-              workoutName: workout.name || 'Unnamed Workout'
-            }
-            exercisePRs.set(exerciseName, newPR)
-          }
+        const shouldUpdatePR = !currentPR || 
+          set.weight > currentPR.weight || 
+          (set.weight === currentPR.weight && set.reps > currentPR.reps)
+
+        if (shouldUpdatePR) {
+          exercisePRs.set(exerciseName, {
+            exerciseName,
+            weight: set.weight,
+            reps: set.reps,
+            date: workout.date,
+            workoutId: workout.id,
+            workoutName: workout.name || 'Unnamed Workout'
+          })
         }
       })
     })
 
-    const sortedPRs = Array.from(exercisePRs.values())
-      .sort((a, b) => b.weight - a.weight)
-
-    setPersonalRecords(sortedPRs)
-  }
-
-  const onRefresh = () => {
-    setRefreshing(true)
-    loadWorkouts()
-  }
-
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut()
-            } catch (error) {
-              console.error('Logout error:', error)
-              Alert.alert('Error', 'Failed to logout. Please try again.')
-            }
-          },
-        },
-      ]
+    setPersonalRecords(
+      Array.from(exercisePRs.values()).sort((a, b) => b.weight - a.weight)
     )
   }
 
+  const handleLogout = () => {
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Logout', style: 'destructive', onPress: signOut },
+    ])
+  }
+
   const formatDate = (dateString: string) => {
-    let date: Date;
+    let date: Date
     
     if (dateString.includes('T')) {
-      date = new Date(dateString);
+      date = new Date(dateString)
     } else {
-      const [year, month, day] = dateString.split('-').map(Number);
-      date = new Date(year, month - 1, day);
+      const [year, month, day] = dateString.split('-').map(Number)
+      date = new Date(year, month - 1, day)
     }
     
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric',
       year: 'numeric'
-    });
+    })
   }
 
   const navigateToWorkoutDetails = (workout: Workout) => {
@@ -416,94 +331,43 @@ export default function HomeScreen() {
     })
   }
 
-  const navigateToHistoryTab = () => {
-    router.push('/(tabs)/history')
-  }
-
   const toggleExerciseSelection = (exerciseName: string) => {
     setSelectedExercises(prev => {
-      const isSelected = prev.includes(exerciseName)
-      
-      if (isSelected) {
+      if (prev.includes(exerciseName)) {
         return prev.filter(name => name !== exerciseName)
-      } else {
-        if (prev.length >= 3) {
-          Alert.alert('Limit Reached', 'You can only track PRs for up to 3 exercises at a time.')
-          return prev
-        }
-        return [...prev, exerciseName]
       }
+      
+      if (prev.length >= 3) {
+        Alert.alert('Limit Reached', 'You can only track PRs for up to 3 exercises at a time.')
+        return prev
+      }
+      
+      return [...prev, exerciseName]
     })
   }
 
   const toggleWorkoutDay = (dayIndex: number) => {
-    setSelectedWorkoutDays(prev => {
-      const isSelected = prev.includes(dayIndex)
-      
-      if (isSelected) {
-        return prev.filter(d => d !== dayIndex)
-      } else {
-        return [...prev, dayIndex].sort((a, b) => a - b)
-      }
-    })
-  }
-
-  const isExerciseSelected = (exerciseName: string) => {
-    return selectedExercises.includes(exerciseName)
-  }
-
-  const isWorkoutDay = (dayIndex: number) => {
-    return selectedWorkoutDays.includes(dayIndex)
-  }
-
-  const getPRForExercise = (exerciseName: string) => {
-    return personalRecords.find(pr => pr.exerciseName === exerciseName)
+    setSelectedWorkoutDays(prev => 
+      prev.includes(dayIndex)
+        ? prev.filter(d => d !== dayIndex)
+        : [...prev, dayIndex].sort((a, b) => a - b)
+    )
   }
 
   const getStreakMessage = () => {
     const months = Math.floor(currentStreak / 30)
     if (months >= 12) return 'Legendary! 1 Year+'
-    if (months >= 11) return 'Arctic Bear! 11 Months'
-    if (months >= 10) return 'Panda! 10 Months'
-    if (months >= 9) return 'Bear! 9 Months'
-    if (months >= 8) return 'Cow! 8 Months'
-    if (months >= 7) return 'Pig! 7 Months'
-    if (months >= 6) return 'Monkey! 6 Months'
-    if (months >= 5) return 'Dog! 5 Months'
-    if (months >= 4) return 'Cat! 4 Months'
-    if (months >= 3) return 'Frog! 3 Months'
-    if (months >= 2) return 'Hamster! 2 Months'
-    if (months >= 1) return 'Mouse! 1 Month'
-    if (currentStreak > 0) return `Keep going!`
-    return 'Start your streak!'
-  }
-
-  const getStreakBadges = () => {
-    return [
-      { emoji: '🐭', name: 'Mouse', days: 30, description: '1 month streak' },
-      { emoji: '🐹', name: 'Hamster', days: 60, description: '2 months streak' },
-      { emoji: '🐸', name: 'Frog', days: 90, description: '3 months streak' },
-      { emoji: '🐱', name: 'Cat', days: 120, description: '4 months streak' },
-      { emoji: '🐶', name: 'Dog', days: 150, description: '5 months streak' },
-      { emoji: '🐵', name: 'Monkey', days: 180, description: '6 months streak' },
-      { emoji: '🐷', name: 'Pig', days: 210, description: '7 months streak' },
-      { emoji: '🐮', name: 'Cow', days: 240, description: '8 months streak' },
-      { emoji: '🐻', name: 'Bear', days: 270, description: '9 months streak' },
-      { emoji: '🐼', name: 'Panda', days: 300, description: '10 months streak' },
-      { emoji: '🐻‍❄️', name: 'Arctic Bear', days: 330, description: '11 months streak' },
-      { emoji: '🐲', name: 'Dragon', days: 360, description: '1 year+ streak' },
-    ]
+    if (months >= 1) return `${STREAK_BADGES[months - 1].name}! ${months} Month${months > 1 ? 's' : ''}`
+    return currentStreak > 0 ? 'Keep going!' : 'Start your streak!'
   }
 
   const getCurrentBadgeIndex = () => {
-    const badges = getStreakBadges()
-    for (let i = badges.length - 1; i >= 0; i--) {
-      if (currentStreak >= badges[i].days) {
-        return i
-      }
+    for (let i = STREAK_BADGES.length - 1; i >= 0; i--) {
+      if (currentStreak >= STREAK_BADGES[i].days) return i
     }
     return -1
   }
+
   const renderPRList = () => {
     if (personalRecords.length === 0) {
       return (
@@ -547,93 +411,91 @@ export default function HomeScreen() {
     )
   }
 
-  const renderPRModal = () => (
-    <Modal
-      visible={showPRModal}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => setShowPRModal(false)}
-    >
-      <View style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => setShowPRModal(false)}>
-            <Text style={styles.modalCloseText}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Select Exercises to Track</Text>
-          <TouchableOpacity 
-            onPress={() => saveSelectedExercises(selectedExercises)}
-            disabled={selectedExercises.length === 0}
-          >
-            <Text style={[
-              styles.modalSaveText,
-              selectedExercises.length === 0 && styles.modalSaveTextDisabled
-            ]}>
-              Save
+  const renderPRModal = () => {
+    const getPRForExercise = (exerciseName: string) => 
+      personalRecords.find(pr => pr.exerciseName === exerciseName)
+
+    return (
+      <Modal
+        visible={showPRModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowPRModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowPRModal(false)}>
+              <Text style={styles.modalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Select Exercises to Track</Text>
+            <TouchableOpacity 
+              onPress={() => saveSelectedExercises(selectedExercises)}
+              disabled={selectedExercises.length === 0}
+            >
+              <Text style={[
+                styles.modalSaveText,
+                selectedExercises.length === 0 && styles.modalSaveTextDisabled
+              ]}>
+                Save
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalDescription}>
+            <Text style={styles.modalDescriptionText}>
+              Choose up to 3 exercises to track personal records for. Only your heaviest lift for each exercise will be displayed.
             </Text>
-          </TouchableOpacity>
-        </View>
+          </View>
 
-        <View style={styles.modalDescription}>
-          <Text style={styles.modalDescriptionText}>
-            Choose up to 3 exercises to track personal records for. Only your heaviest lift for each exercise will be displayed.
-          </Text>
-        </View>
-
-        <FlatList
-          data={availableExercises}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
-            const isSelected = isExerciseSelected(item.name)
-            const pr = getPRForExercise(item.name)
-            
-            return (
-              <TouchableOpacity
-                style={[
-                  styles.exerciseOption,
-                  isSelected && styles.exerciseOptionSelected
-                ]}
-                onPress={() => toggleExerciseSelection(item.name)}
-              >
-                <View style={styles.exerciseOptionContent}>
-                  <Text style={styles.exerciseName}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.exerciseMuscles}>
-                    {item.muscle_groups?.join(', ') || 'No muscle groups'}
-                  </Text>
-                  {pr ? (
-                    <Text style={styles.currentPR}>
-                      Current PR: {pr.weight} lbs × {pr.reps} reps
+          <FlatList
+            data={availableExercises}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              const isSelected = selectedExercises.includes(item.name)
+              const pr = getPRForExercise(item.name)
+              
+              return (
+                <TouchableOpacity
+                  style={[styles.exerciseOption, isSelected && styles.exerciseOptionSelected]}
+                  onPress={() => toggleExerciseSelection(item.name)}
+                >
+                  <View style={styles.exerciseOptionContent}>
+                    <Text style={styles.exerciseName}>{item.name}</Text>
+                    <Text style={styles.exerciseMuscles}>
+                      {item.muscle_groups?.join(', ') || 'No muscle groups'}
                     </Text>
-                  ) : null}
-                </View>
-                <View style={styles.exerciseSelection}>
-                  {isSelected ? (
-                    <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
-                  ) : (
-                    <View style={styles.unselectedCircle} />
-                  )}
-                </View>
-              </TouchableOpacity>
-            )
-          }}
-          contentContainerStyle={styles.modalContent}
-        />
+                    {pr && (
+                      <Text style={styles.currentPR}>
+                        Current PR: {pr.weight} lbs × {pr.reps} reps
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.exerciseSelection}>
+                    {isSelected ? (
+                      <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
+                    ) : (
+                      <View style={styles.unselectedCircle} />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              )
+            }}
+            contentContainerStyle={styles.modalContent}
+          />
 
-        <View style={styles.modalFooter}>
-          <Text style={styles.selectionCount}>
-            {selectedExercises.length}/3 selected
-          </Text>
-          <TouchableOpacity
-            style={styles.clearSelectionButton}
-            onPress={() => setSelectedExercises([])}
-          >
-            <Text style={styles.clearSelectionText}>Clear All</Text>
-          </TouchableOpacity>
+          <View style={styles.modalFooter}>
+            <Text style={styles.selectionCount}>{selectedExercises.length}/3 selected</Text>
+            <TouchableOpacity
+              style={styles.clearSelectionButton}
+              onPress={() => setSelectedExercises([])}
+            >
+              <Text style={styles.clearSelectionText}>Clear All</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </Modal>
-  )
+      </Modal>
+    )
+  }
 
   const renderWorkoutDaysModal = () => (
     <Modal
@@ -668,32 +530,28 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.daysContainer}>
-          {DAYS_OF_WEEK.map((day, index) => {
-            const isSelected = isWorkoutDay(index)
-            
-            return (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.dayOption,
-                  isSelected && styles.dayOptionSelected
-                ]}
-                onPress={() => toggleWorkoutDay(index)}
-              >
-                <Text style={[
-                  styles.dayText,
-                  isSelected && styles.dayTextSelected
-                ]}>
-                  {day}
-                </Text>
-                <View style={styles.dayCheckbox}>
-                  {isSelected ? (
-                    <Ionicons name="checkmark" size={20} color="#007AFF" />
-                  ) : null}
-                </View>
-              </TouchableOpacity>
-            )
-          })}
+          {DAYS_OF_WEEK.map((day, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.dayOption,
+                selectedWorkoutDays.includes(index) && styles.dayOptionSelected
+              ]}
+              onPress={() => toggleWorkoutDay(index)}
+            >
+              <Text style={[
+                styles.dayText,
+                selectedWorkoutDays.includes(index) && styles.dayTextSelected
+              ]}>
+                {day}
+              </Text>
+              <View style={styles.dayCheckbox}>
+                {selectedWorkoutDays.includes(index) ? (
+                  <Ionicons name="checkmark" size={20} color="#007AFF" />
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <View style={styles.modalFooter}>
@@ -712,7 +570,6 @@ export default function HomeScreen() {
   )
 
   const renderStreakBadgesModal = () => {
-    const badges = getStreakBadges()
     const currentBadgeIndex = getCurrentBadgeIndex()
 
     return (
@@ -738,18 +595,15 @@ export default function HomeScreen() {
           </View>
 
           <ScrollView style={styles.badgesScrollView}>
-            {badges.map((badge, index) => {
+            {STREAK_BADGES.map((badge, index) => {
               const isUnlocked = currentStreak >= badge.days
               const isCurrent = index === currentBadgeIndex
-              const daysUntilUnlock = badge.days - currentStreak
+              const isNext = index === currentBadgeIndex + 1
 
               return (
                 <View 
                   key={index}
-                  style={[
-                    styles.badgeCard,
-                    isCurrent && styles.badgeCardCurrent
-                  ]}
+                  style={[styles.badgeCard, isCurrent && styles.badgeCardCurrent]}
                 >
                   <View style={[
                     styles.badgeIconContainer,
@@ -772,16 +626,16 @@ export default function HomeScreen() {
                       ]}>
                         {badge.name}
                       </Text>
-                      {isCurrent ? (
+                      {isCurrent && (
                         <View style={styles.currentBadge}>
                           <Text style={styles.currentBadgeText}>CURRENT</Text>
                         </View>
-                      ) : null}
-                      {!isUnlocked && index === currentBadgeIndex + 1 ? (
+                      )}
+                      {isNext && (
                         <View style={styles.nextBadge}>
                           <Text style={styles.nextBadgeText}>NEXT</Text>
                         </View>
-                      ) : null}
+                      )}
                     </View>
                     <Text style={[
                       styles.badgeDescription,
@@ -793,18 +647,16 @@ export default function HomeScreen() {
                       styles.badgeDays,
                       !isUnlocked && styles.badgeDaysLocked
                     ]}>
-                      {badge.days === 0 ? 'Starting point' : `${badge.days} day${badge.days !== 1 ? 's' : ''}`}
+                      {badge.days} day{badge.days !== 1 ? 's' : ''}
                     </Text>
-                    {!isUnlocked && daysUntilUnlock > 0 ? (
+                    {!isUnlocked && (
                       <Text style={styles.daysRemaining}>
-                        {daysUntilUnlock} day{daysUntilUnlock !== 1 ? 's' : ''} to unlock
+                        {badge.days - currentStreak} day{badge.days - currentStreak !== 1 ? 's' : ''} to unlock
                       </Text>
-                    ) : null}
+                    )}
                   </View>
 
-                  {isUnlocked ? (
-                    <Ionicons name="checkmark-circle" size={28} color="#34C759" />
-                  ) : null}
+                  {isUnlocked && <Ionicons name="checkmark-circle" size={28} color="#34C759" />}
                 </View>
               )
             })}
@@ -817,9 +669,7 @@ export default function HomeScreen() {
   return (
     <ScrollView 
       style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadWorkouts} />}
     >
       <View style={styles.header}>
         <View>
@@ -859,17 +709,17 @@ export default function HomeScreen() {
           <View style={styles.scheduledDays}>
             <Text style={styles.scheduledDaysLabel}>Workout Days:</Text>
             <View style={styles.daysRow}>
-              {DAYS_OF_WEEK.map((day, index) => (
+              {DAYS_OF_WEEK.map((_, index) => (
                 <View 
                   key={index}
                   style={[
                     styles.dayBubble,
-                    isWorkoutDay(index) && styles.dayBubbleActive
+                    selectedWorkoutDays.includes(index) && styles.dayBubbleActive
                   ]}
                 >
                   <Text style={[
                     styles.dayBubbleText,
-                    isWorkoutDay(index) && styles.dayBubbleTextActive
+                    selectedWorkoutDays.includes(index) && styles.dayBubbleTextActive
                   ]}>
                     {DAY_ABBREVIATIONS[index]}
                   </Text>
@@ -935,11 +785,11 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent Workouts</Text>
-          {workouts.length > 0 ? (
-            <TouchableOpacity onPress={navigateToHistoryTab}>
+          {workouts.length > 0 && (
+            <TouchableOpacity onPress={() => router.push('/(tabs)/history')}>
               <Text style={styles.viewAllText}>View All</Text>
             </TouchableOpacity>
-          ) : null}
+          )}
         </View>
         
         {loading ? (
