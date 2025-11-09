@@ -1,21 +1,21 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  Modal,
-  FlatList,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import React, { useCallback, useEffect, useState } from 'react'
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native'
 import { useAuth } from '../../lib/AuthContext'
-import { getExercises, createWorkout, createSet, getUserTemplates } from '../../lib/database'
+import { createSet, createWorkout, getExercises, getUserTemplates } from '../../lib/database'
 import { Exercise } from '../../lib/supabase'
 
 interface WorkoutExercise {
@@ -75,55 +75,36 @@ export default function WorkoutScreen() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [templatesLoading, setTemplatesLoading] = useState(false)
 
-  // Load exercises when modal opens
   const loadExercises = useCallback(async () => {
     if (loading || exercisesLoaded) return
     
-    console.log('Loading exercises...')
     setLoading(true)
     
-    try {
-      const { data, error } = await getExercises()
-      
-      if (error) {
-        console.error('Error loading exercises:', error)
-        Alert.alert('Error', 'Failed to load exercises. Please try again.')
-        setExercisesLoaded(false)
-      } else {
-        console.log(`Loaded ${data?.length || 0} exercises`)
-        setExercises(data || [])
-        setExercisesLoaded(true)
-      }
-    } catch (error) {
-      console.error('Unexpected error loading exercises:', error)
+    const { data, error } = await getExercises()
+    
+    if (error) {
+      Alert.alert('Error', 'Failed to load exercises. Please try again.')
       setExercisesLoaded(false)
-      Alert.alert(
-        'Connection Error', 
-        'Unable to load exercises. Please check your connection and try again.'
-      )
-    } finally {
-      setLoading(false)
+    } else {
+      setExercises(data || [])
+      setExercisesLoaded(true)
     }
+    setLoading(false)
   }, [loading, exercisesLoaded])
 
-  // Load user templates
   const loadTemplates = useCallback(async () => {
     if (!user) return
     
     setTemplatesLoading(true)
-    try {
-      const { data, error } = await getUserTemplates(user.id)
-      if (error) throw error
-      setTemplates(data || [])
-    } catch (error) {
-      console.error('Error loading templates:', error)
+    const { data, error } = await getUserTemplates(user.id)
+    if (error) {
       Alert.alert('Error', 'Failed to load templates')
-    } finally {
-      setTemplatesLoading(false)
+    } else {
+      setTemplates(data || [])
     }
+    setTemplatesLoading(false)
   }, [user])
 
-  // Timer effect
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>
     if (timerActive && timer > 0) {
@@ -224,7 +205,6 @@ export default function WorkoutScreen() {
 
       set.completed = true
       
-      // Start timer for 1:30 (90 seconds)
       setTimer(90)
       setTimerActive(true)
       setCurrentSetId(set.id)
@@ -272,7 +252,6 @@ export default function WorkoutScreen() {
       return
     }
 
-    // Check if any sets are completed
     const hasCompletedSets = workoutExercises.some(we => 
       we.sets.some(set => set.completed)
     )
@@ -282,7 +261,6 @@ export default function WorkoutScreen() {
       return
     }
 
-    // Open save modal
     setTempWorkoutName(workoutName)
     setSaveModalVisible(true)
   }
@@ -292,7 +270,6 @@ export default function WorkoutScreen() {
       return
     }
 
-    // Validate workout name
     if (!tempWorkoutName.trim()) {
       Alert.alert('Error', 'Please enter a workout name')
       return
@@ -330,7 +307,6 @@ export default function WorkoutScreen() {
             })
 
             if (setError) {
-              console.error('Error creating set:', setError)
               setErrors++
             }
           }
@@ -349,7 +325,6 @@ export default function WorkoutScreen() {
         ])
       }
     } catch (error) {
-      console.error('Error saving workout:', error)
       Alert.alert('Error', 'Failed to save workout. Please try again.')
     } finally {
       setSaving(false)
@@ -595,7 +570,6 @@ export default function WorkoutScreen() {
         )}
       </ScrollView>
 
-      {/* Exercise Selection Modal */}
       <Modal
         visible={exerciseModalVisible}
         animationType="slide"
@@ -649,7 +623,6 @@ export default function WorkoutScreen() {
         </View>
       </Modal>
 
-      {/* Template Selection Modal */}
       <Modal
         visible={templateModalVisible}
         animationType="slide"
@@ -711,7 +684,6 @@ export default function WorkoutScreen() {
         </View>
       </Modal>
 
-      {/* Save Workout Modal */}
       <Modal
         visible={saveModalVisible}
         animationType="fade"
