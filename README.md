@@ -110,7 +110,3 @@ lib/
   AuthContext.tsx    # Auth state
   database.ts        # Database functions
 ```
-
-## License
-
-MIT
